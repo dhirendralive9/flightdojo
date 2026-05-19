@@ -1,5 +1,4 @@
 const { Duffel } = require('@duffel/api');
-const { parsePhoneNumberFromString } = require('libphonenumber-js');
 
 const token = process.env.DUFFEL_ACCESS_TOKEN;
 
@@ -234,20 +233,14 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
   }
 }
 
-// Last-resort phone normalizer for the order create call.
-// app.js already validates, but this is defense-in-depth in case any legacy
-// order document has an un-normalized phone (e.g. before this fix shipped).
+// Last-resort cleanup before submitting to Duffel — strip spaces/dashes,
+// guarantee the leading "+". app.js already validated structure.
 function normalizePhoneE164(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
-  try {
-    const parsed = parsePhoneNumberFromString(s);
-    if (parsed && parsed.isValid()) return parsed.number;
-  } catch (e) { /* fall through */ }
-  // If parsing failed but the string already looks E.164, pass it through
-  // and let Duffel be the final judge.
-  if (/^\+\d{7,15}$/.test(s.replace(/\s/g, ''))) return s.replace(/\s/g, '');
-  return '';
+  const digits = s.replace(/\D/g, '');
+  if (digits.length < 7) return '';
+  return '+' + digits;
 }
 
 function mockOffers({ origin, destination, depart_date, return_date, passengers }) {

@@ -126,66 +126,28 @@ function generateReference() {
   return `FD-${s}`;
 }
 
-const { parsePhoneNumberFromString } = require('libphonenumber-js');
-
-// Validate + normalize a phone number to E.164 for Duffel.
-//
-// Policy: be permissive about which country's numbering plan we accept.
-// We don't want to reject legitimate customers because our library's numbering
-// data is stale or doesn't recognize a regional carrier. The rules are:
-//   1. Must start with + (or 00 prefix, which we convert)
-//   2. Must be 7-15 digits after the +
-//   3. If libphonenumber-js can parse it, use its E.164 output
-//   4. Otherwise fall back to a clean E.164 string (digits only after +)
-//
-// Duffel itself validates more strictly. If our submission fails there, the
-// webhook handler logs it and the user can correct it.
+// Phone check — keep it simple. Require "+" and at least 9 digits.
+// Duffel is the source of truth for what they'll accept; we just shape the input.
 function normalizePhone(raw) {
   if (!raw) return { ok: false, error: 'Phone number is required.' };
 
-  let trimmed = String(raw).trim();
-  if (trimmed.length < 5) {
-    return { ok: false, error: 'Phone number is too short.' };
-  }
-
+  let s = String(raw).trim();
   // Accept "00" international prefix as equivalent to "+"
-  if (trimmed.startsWith('00')) {
-    trimmed = '+' + trimmed.slice(2);
+  if (s.startsWith('00')) s = '+' + s.slice(2);
+
+  if (!s.startsWith('+')) {
+    return { ok: false, error: 'Please include your country code (e.g. +1, +44, +91).' };
   }
 
-  if (!trimmed.startsWith('+')) {
-    return {
-      ok: false,
-      error: 'Please include your country code (e.g. +1 for US, +44 for UK, +91 for India).'
-    };
+  const digits = s.replace(/\D/g, '');
+  if (digits.length < 9) {
+    return { ok: false, error: 'Phone number looks too short. Include country code and full number.' };
+  }
+  if (digits.length > 15) {
+    return { ok: false, error: 'Phone number is too long.' };
   }
 
-  // Structural check on digits — E.164 allows 7-15 digits after the +
-  const digitsOnly = trimmed.replace(/\D/g, '');
-  if (digitsOnly.length < 7) {
-    return { ok: false, error: 'Phone number is too short — must include country code and the full number.' };
-  }
-  if (digitsOnly.length > 15) {
-    return { ok: false, error: 'Phone number is too long — should be at most 15 digits total.' };
-  }
-
-  // Try libphonenumber-js for canonical formatting + country detection.
-  // We use isPossible() (length-based) not isValid() (full numbering-plan check),
-  // because plan databases lag behind real carrier allocations and we don't want
-  // to block real users.
-  let country = null;
-  let canonical = '+' + digitsOnly;
-  try {
-    const parsed = parsePhoneNumberFromString(trimmed);
-    if (parsed) {
-      country = parsed.country || null;
-      if (parsed.isPossible()) {
-        canonical = parsed.number; // already E.164
-      }
-    }
-  } catch (e) { /* fall through to canonical */ }
-
-  return { ok: true, e164: canonical, country };
+  return { ok: true, e164: '+' + digits };
 }
 
 // ─── PUBLIC PAGES ────────────────────────────────────────
