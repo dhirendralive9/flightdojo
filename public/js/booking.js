@@ -32,81 +32,173 @@
     });
   }
 
-  // ─── DOB MM-DD-YYYY input with auto-hyphen + ISO conversion ───
+  // ─── DOB entry: 3-segment MM/DD/YYYY with native-calendar fallback ───
   function setupDobInputs() {
-    document.querySelectorAll('[data-dob-input]').forEach(input => {
-      const idx = input.dataset.paxIdx;
+    document.querySelectorAll('[data-dob-segments]').forEach(group => {
+      const idx = group.dataset.dobSegments;
+      const mm = document.querySelector(`[data-dob-mm="${idx}"]`);
+      const dd = document.querySelector(`[data-dob-dd="${idx}"]`);
+      const yy = document.querySelector(`[data-dob-yyyy="${idx}"]`);
       const hidden = document.querySelector(`[data-dob-hidden="${idx}"]`);
       const errorEl = document.querySelector(`[data-dob-error="${idx}"]`);
+      const native = document.querySelector(`[data-dob-native="${idx}"]`);
+      const toggle = document.querySelector(`[data-dob-toggle="${idx}"]`);
 
-      input.addEventListener('input', (e) => {
-        // strip non-digits, then re-insert hyphens
-        let v = e.target.value.replace(/\D/g, '').slice(0, 8);
-        if (v.length > 4)      v = v.slice(0, 2) + '-' + v.slice(2, 4) + '-' + v.slice(4);
-        else if (v.length > 2) v = v.slice(0, 2) + '-' + v.slice(2);
-        e.target.value = v;
+      function clearError() { if (errorEl) errorEl.textContent = ''; }
+      function setError(msg) { if (errorEl) errorEl.textContent = msg; }
 
-        if (errorEl) errorEl.textContent = '';
+      function recompute() {
         hidden.value = '';
+        clearError();
+        if (!mm.value && !dd.value && !yy.value) return; // empty
 
-        if (v.length === 10) {
-          const result = validateAndConvertDob(v);
-          if (result.error) {
-            if (errorEl) errorEl.textContent = result.error;
-            input.setCustomValidity(result.error);
-          } else {
-            hidden.value = result.iso;
-            input.setCustomValidity('');
-          }
-        } else {
-          input.setCustomValidity('');
+        if (mm.value.length === 0 || dd.value.length === 0 || yy.value.length !== 4) {
+          // partial — don't validate yet, just clear hidden value
+          return;
         }
+
+        const result = validateDob(mm.value, dd.value, yy.value);
+        if (result.error) {
+          setError(result.error);
+        } else {
+          hidden.value = result.iso;
+        }
+      }
+
+      // Numeric-only filtering + auto-advance + paste support
+      function attachSegment(input, nextInput, prevInput, expectedLen) {
+        input.addEventListener('input', (e) => {
+          let v = e.target.value.replace(/\D/g, '').slice(0, expectedLen);
+          e.target.value = v;
+          if (v.length >= expectedLen && nextInput) nextInput.focus();
+          recompute();
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Backspace' && !input.value && prevInput) {
+            prevInput.focus();
+            // place caret at end
+            const len = prevInput.value.length;
+            prevInput.setSelectionRange(len, len);
+          }
+        });
+        input.addEventListener('paste', (e) => {
+          // Smart paste: detect MM-DD-YYYY, MM/DD/YYYY, YYYY-MM-DD, or just digits
+          const text = (e.clipboardData || window.clipboardData).getData('text');
+          if (!text) return;
+          const parsed = parsePastedDob(text);
+          if (parsed) {
+            e.preventDefault();
+            mm.value = parsed.mm;
+            dd.value = parsed.dd;
+            yy.value = parsed.yyyy;
+            recompute();
+            yy.focus();
+            yy.setSelectionRange(4, 4);
+          }
+        });
+        input.addEventListener('blur', () => {
+          // pad single-digit months/days on blur
+          if ((input === mm || input === dd) && input.value.length === 1) {
+            input.value = '0' + input.value;
+            recompute();
+          }
+        });
+      }
+
+      attachSegment(mm, dd, null, 2);
+      attachSegment(dd, yy, mm, 2);
+      attachSegment(yy, null, dd, 4);
+
+      // Native date picker toggle
+      let nativeMode = false;
+      toggle?.addEventListener('click', () => {
+        nativeMode = !nativeMode;
+        if (nativeMode) {
+          group.style.display = 'none';
+          native.style.display = 'block';
+          toggle.innerHTML = '<i data-lucide="hash" style="width:11px;height:11px;"></i> Type manually';
+          // copy current value if any
+          if (hidden.value) native.value = hidden.value;
+          native.focus();
+        } else {
+          group.style.display = '';
+          native.style.display = 'none';
+          toggle.innerHTML = '<i data-lucide="calendar" style="width:11px;height:11px;"></i> Use calendar';
+          mm.focus();
+        }
+        if (window.lucide) lucide.createIcons();
       });
 
-      input.addEventListener('blur', () => {
-        if (input.value && input.value.length < 10) {
-          if (errorEl) errorEl.textContent = 'Please enter full date as MM-DD-YYYY';
+      native.addEventListener('change', () => {
+        // native sends YYYY-MM-DD
+        const v = native.value;
+        clearError();
+        if (!v) { hidden.value = ''; return; }
+        const [yyyy, mmStr, ddStr] = v.split('-');
+        const result = validateDob(mmStr, ddStr, yyyy);
+        if (result.error) {
+          setError(result.error);
+          hidden.value = '';
+        } else {
+          hidden.value = result.iso;
+          // sync segments too so if user toggles back they see their date
+          mm.value = mmStr; dd.value = ddStr; yy.value = yyyy;
         }
+        onFormChange();
       });
     });
   }
 
-  function validateAndConvertDob(mmddyyyy) {
-    const match = mmddyyyy.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (!match) return { error: 'Use MM-DD-YYYY format' };
+  function parsePastedDob(text) {
+    text = text.trim();
+    // YYYY-MM-DD or YYYY/MM/DD
+    let m = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (m) return { mm: m[2].padStart(2, '0'), dd: m[3].padStart(2, '0'), yyyy: m[1] };
+    // MM-DD-YYYY or MM/DD/YYYY
+    m = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (m) return { mm: m[1].padStart(2, '0'), dd: m[2].padStart(2, '0'), yyyy: m[3] };
+    // 8 digits MMDDYYYY
+    m = text.match(/^(\d{2})(\d{2})(\d{4})$/);
+    if (m) return { mm: m[1], dd: m[2], yyyy: m[3] };
+    return null;
+  }
 
-    const month = parseInt(match[1], 10);
-    const day = parseInt(match[2], 10);
-    const year = parseInt(match[3], 10);
+  function validateDob(mmStr, ddStr, yyyyStr) {
+    const month = parseInt(mmStr, 10);
+    const day = parseInt(ddStr, 10);
+    const year = parseInt(yyyyStr, 10);
 
+    if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) {
+      return { error: 'Enter a valid date' };
+    }
     if (month < 1 || month > 12) return { error: 'Month must be 01–12' };
     if (day < 1 || day > 31)     return { error: 'Day must be 01–31' };
 
     const currentYear = new Date().getFullYear();
     if (year < 1900 || year > currentYear) return { error: 'Year must be 1900–' + currentYear };
 
-    // calendar validity (e.g. reject Feb 30)
     const d = new Date(year, month - 1, day);
     if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
       return { error: 'Not a real date' };
     }
     if (d > new Date()) return { error: 'Date is in the future' };
 
-    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return { iso };
+    return {
+      iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    };
   }
 
   function passengerFieldsValid() {
-    const required = document.querySelectorAll('#step1 input[required], #step1 select[required], #step2 input[required]');
+    const required = document.querySelectorAll('#step1 input[required]:not(.bk-dob-seg):not(.bk-dob-native), #step1 select[required], #step2 input[required]');
     for (const f of required) {
       if (!f.value || !f.value.trim()) return false;
       if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.value)) return false;
-      if (f.dataset.dobInput !== undefined && f.value.length < 10) return false;
     }
-    // every hidden DOB field must be populated (means MM-DD-YYYY was valid)
+    // every hidden DOB field must be populated (means MM/DD/YYYY was valid)
     const hiddenDobs = document.querySelectorAll('[data-dob-hidden]');
+    if (hiddenDobs.length === 0) return false;
     for (const h of hiddenDobs) {
-      if (!h.value) return false;
+      if (!h.value || !/^\d{4}-\d{2}-\d{2}$/.test(h.value)) return false;
     }
     return true;
   }
@@ -159,7 +251,21 @@
         // 403 = blocked by ProxyCheck
         if (res.status === 403 && data.error === 'payment_blocked') {
           showBlockedScreen(data);
-          intentRequested = false; // allow retry after VPN off
+          intentRequested = false;
+          return;
+        }
+        // 400 = validation error (missing/invalid passenger field)
+        if (res.status === 400) {
+          intentRequested = false;
+          showMessage(data.message || 'Please check the passenger details and try again.', 'error');
+          // scroll back to passenger section if a specific passenger is at fault
+          if (typeof data.passenger_index === 'number') {
+            const pax = document.querySelector(`[data-pax-idx="${data.passenger_index}"]`);
+            pax?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            pax?.classList.add('bk-pax-flash');
+            setTimeout(() => pax?.classList.remove('bk-pax-flash'), 1600);
+          }
+          lockPayment();
           return;
         }
         throw new Error(data.message || data.error || 'Failed to start payment');

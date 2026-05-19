@@ -216,7 +216,54 @@ app.post('/api/book/intent', async (req, res) => {
     const { offer_id, passengers, contact_email, contact_phone } = req.body;
 
     if (!offer_id || !passengers || !passengers.length || !contact_email) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'missing_fields', message: 'Missing required fields' });
+    }
+
+    // ── Server-side passenger validation ──
+    // Stripe should never be called with bad data. Duffel rejects missing born_on
+    // *after* payment, which would charge the customer for nothing.
+    const REQUIRED_PAX_FIELDS = ['title', 'given_name', 'family_name', 'born_on', 'gender'];
+    for (let i = 0; i < passengers.length; i++) {
+      const p = passengers[i] || {};
+      for (const field of REQUIRED_PAX_FIELDS) {
+        if (!p[field] || String(p[field]).trim() === '') {
+          return res.status(400).json({
+            error: 'missing_passenger_field',
+            message: `Passenger ${i + 1}: "${field.replace('_', ' ')}" is required.`,
+            field,
+            passenger_index: i
+          });
+        }
+      }
+      // born_on must be YYYY-MM-DD and a real, past date
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.born_on)) {
+        return res.status(400).json({
+          error: 'invalid_dob_format',
+          message: `Passenger ${i + 1}: date of birth must be in YYYY-MM-DD format.`,
+          passenger_index: i
+        });
+      }
+      const dob = new Date(p.born_on + 'T00:00:00Z');
+      if (isNaN(dob.getTime()) || dob > new Date() || dob.getUTCFullYear() < 1900) {
+        return res.status(400).json({
+          error: 'invalid_dob',
+          message: `Passenger ${i + 1}: date of birth is not a valid past date.`,
+          passenger_index: i
+        });
+      }
+      if (!['m', 'f'].includes(String(p.gender).toLowerCase())) {
+        return res.status(400).json({
+          error: 'invalid_gender',
+          message: `Passenger ${i + 1}: gender must be m or f.`,
+          passenger_index: i
+        });
+      }
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact_email)) {
+      return res.status(400).json({
+        error: 'invalid_email',
+        message: 'Please provide a valid contact email.'
+      });
     }
 
     // ───── SECURITY: ProxyCheck IP gate ─────
