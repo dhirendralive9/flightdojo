@@ -380,7 +380,12 @@
     const appearance = buildAppearance();
     elements = stripe.elements({ clientSecret, appearance });
     paymentElement = elements.create('payment', {
-      layout: { type: 'tabs', defaultCollapsed: false }
+      layout: { type: 'tabs', defaultCollapsed: false },
+      // Hide Stripe Link auto-fill prompt — we already collect email/phone above,
+      // and we don't want users to "create a Link account" mid-checkout.
+      wallets: { applePay: 'never', googlePay: 'never', link: 'never' },
+      // Don't ask the user to re-enter contact details — we have them.
+      fields: { billingDetails: { email: 'never', phone: 'never', name: 'auto' } }
     });
 
     const paymentDiv = document.getElementById('paymentElement');
@@ -449,9 +454,25 @@
 
     const returnUrl = window.location.origin + '/booking/' + orderReference;
 
+    // Read collected contact details to pass as billing details (no need for Link)
+    const contactEmail = document.getElementById('contactEmail')?.value || '';
+    const contactPhone = document.getElementById('contactPhone')?.value || '';
+    const firstPaxFirst = document.querySelector('[name="passengers[0][given_name]"]')?.value || '';
+    const firstPaxLast  = document.querySelector('[name="passengers[0][family_name]"]')?.value || '';
+    const cardholderName = (firstPaxFirst + ' ' + firstPaxLast).trim();
+
     const { error } = await stripe.confirmPayment({
       elements,
-      confirmParams: { return_url: returnUrl }
+      confirmParams: {
+        return_url: returnUrl,
+        payment_method_data: {
+          billing_details: {
+            name: cardholderName || undefined,
+            email: contactEmail || undefined,
+            phone: contactPhone || undefined
+          }
+        }
+      }
     });
 
     // Only reachable on validation/card errors. 3DS flows hand control back via return_url.

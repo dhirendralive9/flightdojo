@@ -26,7 +26,7 @@ async function createPaymentIntent({ amount, currency, metadata, receipt_email }
   return stripe.paymentIntents.create({
     amount: Math.round(amount * 100), // dollars/euros → minor units
     currency: (currency || 'eur').toLowerCase(),
-    automatic_payment_methods: { enabled: true },
+    payment_method_types: ['card'],
     metadata: metadata || {},
     receipt_email: receipt_email || undefined,
     description: metadata?.description || 'FlightDojo booking'

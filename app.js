@@ -126,16 +126,51 @@ function generateReference() {
   return `FD-${s}`;
 }
 
-// Normalize a user-entered phone number to E.164 ("+12025550150").
-// Returns empty string if input clearly isn't a valid phone.
-// Duffel requires strict E.164: leading + and 7-15 digits with no spaces.
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
+
+// Validate + normalize a phone number to strict E.164 using libphonenumber-js.
+// Returns { ok: true, e164, country } on success, or { ok: false, error } with
+// a user-facing message on failure. Catches all the cases regex misses:
+// fake area codes, non-existent country codes, wrong length per country, etc.
 function normalizePhone(raw) {
-  if (!raw) return '';
+  if (!raw) return { ok: false, error: 'Phone number is required.' };
+
   const trimmed = String(raw).trim();
-  const hasPlus = trimmed.startsWith('+');
-  const digits = trimmed.replace(/\D/g, '');
-  if (digits.length < 7 || digits.length > 15) return '';
-  return (hasPlus ? '+' : (digits.length >= 10 ? '+' : '')) + digits;
+  if (trimmed.length < 5) {
+    return { ok: false, error: 'Phone number is too short.' };
+  }
+
+  // Insist on a country code — without a + (or international prefix) we can't
+  // know which country, and the resulting E.164 will be wrong.
+  if (!trimmed.startsWith('+') && !trimmed.startsWith('00')) {
+    return {
+      ok: false,
+      error: 'Please include your country code (e.g. +1 for US, +44 for UK, +91 for India).'
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = parsePhoneNumberFromString(trimmed);
+  } catch (err) {
+    return { ok: false, error: 'Could not parse phone number. Please check the format.' };
+  }
+
+  if (!parsed) {
+    return { ok: false, error: 'Could not parse phone number. Please check the format.' };
+  }
+  if (!parsed.isValid()) {
+    return {
+      ok: false,
+      error: `This doesn't look like a valid phone number for ${parsed.country || 'that country code'}. Please double-check.`
+    };
+  }
+
+  return {
+    ok: true,
+    e164: parsed.number,         // already in E.164 format: "+15551234567"
+    country: parsed.country      // ISO code: "US", "GB", "IN" etc.
+  };
 }
 
 // ─── PUBLIC PAGES ────────────────────────────────────────
@@ -310,18 +345,18 @@ app.post('/api/book/intent', async (req, res) => {
       });
     }
 
-    // Phone number — Duffel requires E.164 (+CountryCodeDigits with no spaces).
-    // We accept user-entered "+1 555 123 4567" or "(555) 123-4567" and normalize.
-    const phoneNormalized = normalizePhone(contact_phone || '');
-    if (!phoneNormalized) {
+    // Phone number — Duffel requires strict E.164 AND a real, dialable number.
+    // libphonenumber-js validates against actual country numbering plans.
+    const phoneResult = normalizePhone(contact_phone || '');
+    if (!phoneResult.ok) {
       return res.status(400).json({
         error: 'invalid_phone',
-        message: 'Please provide a valid phone number with country code (e.g. +1 555 123 4567).'
+        message: phoneResult.error
       });
     }
-    // Use the normalized phone everywhere downstream — including the Order doc
-    // we save to MongoDB, so the webhook handler picks up the cleaned version.
-    const normalizedContactPhone = phoneNormalized;
+    // Use the normalized E.164 phone everywhere downstream — including the Order
+    // doc we save to MongoDB, so the webhook handler picks up the cleaned version.
+    const normalizedContactPhone = phoneResult.e164;
 
     // ───── SECURITY: ProxyCheck IP gate ─────
     const ip = proxycheck.clientIp(req);

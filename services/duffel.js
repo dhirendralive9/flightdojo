@@ -1,4 +1,5 @@
 const { Duffel } = require('@duffel/api');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
 
 const token = process.env.DUFFEL_ACCESS_TOKEN;
 
@@ -233,17 +234,20 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
   }
 }
 
-// E.164: + followed by 1-15 digits. Strip spaces, dashes, parens, dots, slashes.
-// If no leading +, leave caller's choice — Duffel needs +, so we add one if user
-// typed all digits and the number has a plausible length (≥7).
+// Last-resort phone normalizer for the order create call.
+// app.js already validates, but this is defense-in-depth in case any legacy
+// order document has an un-normalized phone (e.g. before this fix shipped).
 function normalizePhoneE164(raw) {
   if (!raw) return '';
-  let s = String(raw).trim();
-  // strip everything that isn't a digit or leading +
-  const hasPlus = s.startsWith('+');
-  s = s.replace(/[^\d]/g, '');
-  if (s.length < 7 || s.length > 15) return ''; // invalid length, will fail Duffel
-  return (hasPlus || s.length >= 10 ? '+' : '') + s;
+  const s = String(raw).trim();
+  try {
+    const parsed = parsePhoneNumberFromString(s);
+    if (parsed && parsed.isValid()) return parsed.number;
+  } catch (e) { /* fall through */ }
+  // If parsing failed but the string already looks E.164, pass it through
+  // and let Duffel be the final judge.
+  if (/^\+\d{7,15}$/.test(s.replace(/\s/g, ''))) return s.replace(/\s/g, '');
+  return '';
 }
 
 function mockOffers({ origin, destination, depart_date, return_date, passengers }) {
