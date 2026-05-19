@@ -8,7 +8,7 @@ if (!hasRealKey) {
 }
 
 const stripe = hasRealKey
-  ? new Stripe(key, { apiVersion: '2025-09-30.acacia' })
+  ? new Stripe(key)
   : null;
 
 async function createPaymentIntent({ amount, currency, metadata, receipt_email }) {

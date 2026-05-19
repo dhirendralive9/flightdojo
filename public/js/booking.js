@@ -18,6 +18,8 @@
     const form = document.getElementById('bookingForm');
     if (!form) return;
 
+    setupDobInputs();
+
     form.addEventListener('submit', onSubmit);
     form.addEventListener('input', onFormChange);
     form.addEventListener('change', onFormChange);
@@ -30,11 +32,81 @@
     });
   }
 
+  // ─── DOB MM-DD-YYYY input with auto-hyphen + ISO conversion ───
+  function setupDobInputs() {
+    document.querySelectorAll('[data-dob-input]').forEach(input => {
+      const idx = input.dataset.paxIdx;
+      const hidden = document.querySelector(`[data-dob-hidden="${idx}"]`);
+      const errorEl = document.querySelector(`[data-dob-error="${idx}"]`);
+
+      input.addEventListener('input', (e) => {
+        // strip non-digits, then re-insert hyphens
+        let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+        if (v.length > 4)      v = v.slice(0, 2) + '-' + v.slice(2, 4) + '-' + v.slice(4);
+        else if (v.length > 2) v = v.slice(0, 2) + '-' + v.slice(2);
+        e.target.value = v;
+
+        if (errorEl) errorEl.textContent = '';
+        hidden.value = '';
+
+        if (v.length === 10) {
+          const result = validateAndConvertDob(v);
+          if (result.error) {
+            if (errorEl) errorEl.textContent = result.error;
+            input.setCustomValidity(result.error);
+          } else {
+            hidden.value = result.iso;
+            input.setCustomValidity('');
+          }
+        } else {
+          input.setCustomValidity('');
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        if (input.value && input.value.length < 10) {
+          if (errorEl) errorEl.textContent = 'Please enter full date as MM-DD-YYYY';
+        }
+      });
+    });
+  }
+
+  function validateAndConvertDob(mmddyyyy) {
+    const match = mmddyyyy.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!match) return { error: 'Use MM-DD-YYYY format' };
+
+    const month = parseInt(match[1], 10);
+    const day = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+
+    if (month < 1 || month > 12) return { error: 'Month must be 01–12' };
+    if (day < 1 || day > 31)     return { error: 'Day must be 01–31' };
+
+    const currentYear = new Date().getFullYear();
+    if (year < 1900 || year > currentYear) return { error: 'Year must be 1900–' + currentYear };
+
+    // calendar validity (e.g. reject Feb 30)
+    const d = new Date(year, month - 1, day);
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+      return { error: 'Not a real date' };
+    }
+    if (d > new Date()) return { error: 'Date is in the future' };
+
+    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { iso };
+  }
+
   function passengerFieldsValid() {
     const required = document.querySelectorAll('#step1 input[required], #step1 select[required], #step2 input[required]');
     for (const f of required) {
       if (!f.value || !f.value.trim()) return false;
       if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.value)) return false;
+      if (f.dataset.dobInput !== undefined && f.value.length < 10) return false;
+    }
+    // every hidden DOB field must be populated (means MM-DD-YYYY was valid)
+    const hiddenDobs = document.querySelectorAll('[data-dob-hidden]');
+    for (const h of hiddenDobs) {
+      if (!h.value) return false;
     }
     return true;
   }

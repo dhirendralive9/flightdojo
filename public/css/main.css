@@ -3013,3 +3013,11 @@ footer.site-footer {
   .bks-title { font-size: 24px; }
   .bks-actions { flex-direction: column; align-items: stretch; }
 }
+
+.bk-dob-error {
+  font-size: 11px;
+  color: #cc3322;
+  margin-top: 4px;
+  min-height: 14px;
+  font-weight: 500;
+}
