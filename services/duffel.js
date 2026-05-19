@@ -191,35 +191,36 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
     throw new Error(`Passenger count mismatch: offer expects ${duffelPassengers.length}, got ${passengers.length}`);
   }
 
-  // Build passenger payload — each one references its Duffel ID.
-  // Phone MUST be in E.164 format (only + and digits, no spaces or dashes).
-  const orderPassengers = passengers.map((p, idx) => {
-    const duffelP = duffelPassengers[idx];
-    const phoneRaw = p.phone_number || contact.phone || '';
-    const phoneE164 = normalizePhoneE164(phoneRaw);
-    return {
-      id: duffelP.id,                    // ← required, from the offer
-      type: duffelP.type || p.type || 'adult',
-      title: p.title,
-      gender: p.gender,
-      given_name: p.given_name,
-      family_name: p.family_name,
-      born_on: p.born_on,
-      email: p.email || contact.email,
-      phone_number: phoneE164
-    };
-  });
+  // Detect test mode (Duffel test tokens start with "duffel_test_")
+  const isTestMode = (process.env.DUFFEL_ACCESS_TOKEN || '').startsWith('duffel_test_');
 
+  // Helper: build the passenger payload for a given phone number
+  function buildPassengers(phoneOverride) {
+    return passengers.map((p, idx) => {
+      const duffelP = duffelPassengers[idx];
+      const phoneRaw = phoneOverride || p.phone_number || contact.phone || '';
+      const phoneE164 = normalizePhoneE164(phoneRaw);
+      return {
+        id: duffelP.id,
+        type: duffelP.type || p.type || 'adult',
+        title: p.title,
+        gender: p.gender,
+        given_name: p.given_name,
+        family_name: p.family_name,
+        born_on: p.born_on,
+        email: p.email || contact.email,
+        phone_number: phoneE164
+      };
+    });
+  }
+
+  // Attempt 1: use the customer's real phone number
   try {
     const orderResponse = await duffel.orders.create({
       type: 'instant',
       selected_offers: [offerId],
-      passengers: orderPassengers,
-      payments: [{
-        type: 'balance',
-        amount: String(amount),
-        currency: currency
-      }],
+      passengers: buildPassengers(),
+      payments: [{ type: 'balance', amount: String(amount), currency }],
       metadata: { source: 'flightdojo' }
     });
     return {
@@ -228,7 +229,41 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
       raw: orderResponse.data
     };
   } catch (err) {
-    console.error('Duffel order create failed:', err.errors || err.message);
+    const errors = err.errors || [];
+    const isPhoneError = errors.some(e =>
+      e.code === 'invalid_phone_number' ||
+      e.source?.field === 'phone_number'
+    );
+
+    // In test mode only, retry with Duffel's known-good test phone if the only
+    // problem was the phone format. Duffel's sandbox sometimes rejects valid
+    // international numbers (especially +91 / Indian mobiles) that work fine
+    // in production. We keep the customer's real phone in our Order doc for
+    // ops/support — Duffel just gets a phone that satisfies their validator.
+    if (isTestMode && isPhoneError) {
+      console.warn('Duffel rejected phone in test mode — retrying with sandbox test number');
+      try {
+        const orderResponse = await duffel.orders.create({
+          type: 'instant',
+          selected_offers: [offerId],
+          passengers: buildPassengers('+442080160509'),
+          payments: [{ type: 'balance', amount: String(amount), currency }],
+          metadata: { source: 'flightdojo', phone_fallback: 'true' }
+        });
+        console.log('✓ Order created using test-mode phone fallback');
+        return {
+          id: orderResponse.data.id,
+          booking_reference: orderResponse.data.booking_reference,
+          raw: orderResponse.data,
+          phone_fallback_used: true
+        };
+      } catch (retryErr) {
+        console.error('Duffel order create failed (after test-phone retry):', retryErr.errors || retryErr.message);
+        throw retryErr;
+      }
+    }
+
+    console.error('Duffel order create failed:', errors.length ? errors : err.message);
     throw err;
   }
 }
