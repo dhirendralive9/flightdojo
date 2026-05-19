@@ -1,0 +1,159 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="results-header">
+  <div class="results-header-inner">
+    <a href="javascript:history.back()" class="back-link">
+      <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
+      Back to results
+    </a>
+
+    <div class="results-route">
+      <div class="rr-airport">
+        <div class="rr-iata"><%= offer.slices[0]?.origin %></div>
+        <div class="rr-name"><%= offer.slices[0]?.origin_name %></div>
+      </div>
+      <div class="rr-arrow">
+        <% if (offer.slices.length > 1) { %>
+          <i data-lucide="arrow-left-right" style="width:22px;height:22px;"></i>
+        <% } else { %>
+          <i data-lucide="arrow-right" style="width:22px;height:22px;"></i>
+        <% } %>
+      </div>
+      <div class="rr-airport">
+        <div class="rr-iata"><%= offer.slices[0]?.destination %></div>
+        <div class="rr-name"><%= offer.slices[0]?.destination_name %></div>
+      </div>
+    </div>
+
+    <div class="results-meta">
+      <span><i data-lucide="ticket" style="width:13px;height:13px;"></i> Offer ID <%= offer.id.slice(0, 18) %>…</span>
+      <span><i data-lucide="clock" style="width:13px;height:13px;"></i> Expires <%= new Date(offer.expires_at).toLocaleString('en-US',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) %></span>
+    </div>
+  </div>
+</div>
+
+<div class="offer-detail">
+  <div class="od-grid">
+
+    <div class="od-main">
+      <% offer.slices.forEach((slice, idx) => { %>
+        <div class="od-slice">
+          <div class="od-slice-header">
+            <div class="od-slice-tag"><%= idx === 0 ? 'Outbound' : 'Return' %></div>
+            <div class="od-slice-route"><%= slice.origin %> → <%= slice.destination %></div>
+            <div class="od-slice-meta"><%= slice.departure_date %> · <%= slice.duration %></div>
+          </div>
+
+          <div class="od-segments">
+            <% (slice.segments || []).forEach((seg, segIdx) => { %>
+              <div class="od-segment">
+                <div class="od-seg-carrier">
+                  <% if (seg.carrier_logo) { %>
+                    <img src="<%= seg.carrier_logo %>" alt="<%= seg.carrier %>" class="seg-logo"/>
+                  <% } else { %>
+                    <div class="seg-logo-fallback"><%= seg.carrier_iata %></div>
+                  <% } %>
+                  <div>
+                    <div class="seg-carrier-name"><%= seg.carrier %></div>
+                    <div class="seg-flight-no"><%= seg.carrier_iata %> <%= seg.flight_number %> · <%= seg.aircraft || 'Aircraft TBC' %></div>
+                  </div>
+                </div>
+
+                <div class="od-seg-route">
+                  <div class="od-seg-airport">
+                    <div class="od-seg-time">
+                      <%= new Date(seg.departing_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false}) %>
+                    </div>
+                    <div class="od-seg-iata"><%= seg.origin %></div>
+                    <div class="od-seg-date">
+                      <%= new Date(seg.departing_at).toLocaleDateString('en-US',{weekday:'short',day:'numeric',month:'short'}) %>
+                    </div>
+                  </div>
+
+                  <div class="od-seg-bar">
+                    <div class="seg-bar-dot"></div>
+                    <div class="seg-bar-line"></div>
+                    <div class="seg-bar-plane"><i data-lucide="plane" style="width:14px;height:14px;"></i></div>
+                  </div>
+
+                  <div class="od-seg-airport">
+                    <div class="od-seg-time">
+                      <%= new Date(seg.arriving_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false}) %>
+                    </div>
+                    <div class="od-seg-iata"><%= seg.destination %></div>
+                    <div class="od-seg-date">
+                      <%= new Date(seg.arriving_at).toLocaleDateString('en-US',{weekday:'short',day:'numeric',month:'short'}) %>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <% if (segIdx < slice.segments.length - 1) { %>
+                <div class="od-layover">
+                  <i data-lucide="clock" style="width:13px;height:13px;"></i>
+                  Layover at <%= seg.destination %>
+                </div>
+              <% } %>
+            <% }) %>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <aside class="od-sidebar">
+      <div class="od-summary">
+        <div class="od-carrier-row">
+          <% if (offer.carrier_logo) { %>
+            <img src="<%= offer.carrier_logo %>" alt="<%= offer.carrier %>" class="od-carrier-logo"/>
+          <% } else { %>
+            <div class="od-carrier-fallback"><%= offer.carrier_iata %></div>
+          <% } %>
+          <div>
+            <div class="od-carrier-name"><%= offer.carrier %></div>
+            <div class="od-passenger-count"><%= offer.passenger_count %> passenger<%= offer.passenger_count > 1 ? 's' : '' %></div>
+          </div>
+        </div>
+
+        <div class="od-price-block">
+          <div class="od-price-line">
+            <span>Base fare</span>
+            <span><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.base_amount)) %></span>
+          </div>
+          <div class="od-price-line">
+            <span>Taxes &amp; fees</span>
+            <span><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.tax_amount)) %></span>
+          </div>
+          <div class="od-price-divider"></div>
+          <div class="od-price-line od-price-total">
+            <span>Total</span>
+            <span class="od-price-big"><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.total_amount)) %></span>
+          </div>
+        </div>
+
+        <button class="btn-coral od-book-btn">
+          <i data-lucide="ticket" style="width:16px;height:16px;"></i>
+          Continue to Book
+        </button>
+
+        <p class="od-disclaimer">
+          Booking flow is currently in test mode. No real payment will be charged. Connect Duffel Payments &amp; passenger collection to complete.
+        </p>
+
+        <div class="od-trust">
+          <div class="od-trust-item">
+            <i data-lucide="shield-check" style="width:14px;height:14px;color:var(--coral);"></i>
+            Secure booking
+          </div>
+          <div class="od-trust-item">
+            <i data-lucide="headphones" style="width:14px;height:14px;color:var(--coral);"></i>
+            24/7 support
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<%- include('partials/footer') %>

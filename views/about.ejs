@@ -1,0 +1,89 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<%- include('partials/page-header', {
+  eyebrow: 'About FlightDojo',
+  title: 'The Way of<br/><em>The Traveller</em>',
+  sub: 'A dojo is a place of disciplined practice. FlightDojo brings that same precision to flight search — clean data, transparent pricing, and zero noise.'
+}) %>
+
+<section class="section reveal">
+  <div class="about-grid">
+    <div>
+      <p class="about-lead">We built FlightDojo because flight search was broken.</p>
+    </div>
+    <div class="about-body">
+      <p>Every aggregator promised the lowest fare. Almost none of them delivered. Cached prices, surprise fees at checkout, dark patterns nudging upsells you didn't ask for, support routed through bots that couldn't help when things went wrong.</p>
+      <p>FlightDojo is the antidote. We pull live fares directly from over <strong>740 airlines</strong>, every 90 seconds. We show the total cost up front — taxes, baggage, seat selection — so the price you see is the price you pay. And when something goes sideways at 3am in a foreign airport, a real person picks up.</p>
+      <p>We're built and operated by <strong>Lazarus Consulting LLC</strong>, a Delaware company with a simple mandate: build the flight search tool we wished existed.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section values-section">
+  <div class="reveal" style="text-align:center;max-width:680px;margin:0 auto 48px;">
+    <div class="sec-eyebrow" style="justify-content:center;">Our Principles</div>
+    <div class="sec-title" style="margin-bottom:0;">What We Stand For</div>
+  </div>
+
+  <div class="values-grid stagger">
+    <div class="value-card">
+      <div class="value-num">01</div>
+      <div class="value-title">Transparency</div>
+      <div class="value-desc">Total price shown before checkout. Always. If a fee exists, you'll see it before you commit — not after.</div>
+    </div>
+    <div class="value-card">
+      <div class="value-num">02</div>
+      <div class="value-title">Precision</div>
+      <div class="value-desc">Live fares, refreshed every 90 seconds. No stale caches. No phantom prices that vanish at booking.</div>
+    </div>
+    <div class="value-card">
+      <div class="value-num">03</div>
+      <div class="value-title">Humanity</div>
+      <div class="value-desc">Real people on support, 24/7. No chatbot mazes. When your flight is cancelled, you talk to a human.</div>
+    </div>
+    <div class="value-card">
+      <div class="value-num">04</div>
+      <div class="value-title">Independence</div>
+      <div class="value-desc">We don't take placement money from airlines. The cheapest option is the one ranked first. Period.</div>
+    </div>
+    <div class="value-card">
+      <div class="value-num">05</div>
+      <div class="value-title">Privacy</div>
+      <div class="value-desc">Your search history is your business. We don't sell data, don't track across the web, don't share with partners.</div>
+    </div>
+    <div class="value-card">
+      <div class="value-num">06</div>
+      <div class="value-title">Excellence</div>
+      <div class="value-desc">A dojo without standards is just a room. We hold our product, our team, and our promises to the highest bar.</div>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div style="text-align:center;max-width:680px;margin:0 auto 40px;">
+    <div class="sec-eyebrow" style="justify-content:center;">By The Numbers</div>
+    <div class="sec-title" style="margin-bottom:0;">FlightDojo Today</div>
+  </div>
+  <div class="team-stats stagger">
+    <div class="team-stat"><div class="team-stat-n">740+</div><div class="team-stat-l">Airlines Indexed</div></div>
+    <div class="team-stat"><div class="team-stat-n">3.2M</div><div class="team-stat-l">Routes Tracked</div></div>
+    <div class="team-stat"><div class="team-stat-n">98%</div><div class="team-stat-l">Price Accuracy</div></div>
+    <div class="team-stat"><div class="team-stat-n">24/7</div><div class="team-stat-l">Human Support</div></div>
+  </div>
+</section>
+
+<div class="deals-section reveal">
+  <div>
+    <div class="deals-tag">Join The Dojo</div>
+    <div class="deals-title">Ready To Fly<br/>Better?</div>
+    <div class="deals-sub">Search smarter, pay less, travel with confidence.</div>
+  </div>
+  <div>
+    <a href="/" class="btn-outline" style="background:#fff;color:var(--coral);border-color:#fff;padding:14px 28px;font-size:12px;">
+      Start Searching <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+    </a>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

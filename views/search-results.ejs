@@ -1,0 +1,143 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="results-header">
+  <div class="results-header-inner">
+    <a href="/" class="back-link">
+      <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
+      Back to search
+    </a>
+
+    <div class="results-route">
+      <div class="rr-airport">
+        <div class="rr-iata"><%= query.origin %></div>
+        <div class="rr-name"><%= origin_info ? origin_info.city : query.origin %></div>
+      </div>
+      <div class="rr-arrow">
+        <% if (query.ret) { %>
+          <i data-lucide="arrow-left-right" style="width:22px;height:22px;"></i>
+        <% } else { %>
+          <i data-lucide="arrow-right" style="width:22px;height:22px;"></i>
+        <% } %>
+      </div>
+      <div class="rr-airport">
+        <div class="rr-iata"><%= query.destination %></div>
+        <div class="rr-name"><%= destination_info ? destination_info.city : query.destination %></div>
+      </div>
+    </div>
+
+    <div class="results-meta">
+      <span><i data-lucide="calendar" style="width:13px;height:13px;"></i> <%= new Date(query.depart).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'}) %></span>
+      <% if (query.ret) { %>
+        <span><i data-lucide="calendar-check" style="width:13px;height:13px;"></i> <%= new Date(query.ret).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'}) %></span>
+      <% } %>
+      <span><i data-lucide="users" style="width:13px;height:13px;"></i> <%= query.passengers %> passenger<%= query.passengers > 1 ? 's' : '' %></span>
+      <span><i data-lucide="armchair" style="width:13px;height:13px;"></i> <%= query.cabin.charAt(0).toUpperCase() + query.cabin.slice(1) %></span>
+    </div>
+  </div>
+</div>
+
+<div class="results-section">
+  <% if (error) { %>
+    <div class="results-error">
+      <div class="error-icon"><i data-lucide="alert-circle" style="width:32px;height:32px;"></i></div>
+      <h3>Search failed</h3>
+      <p><%= error %></p>
+      <a href="/" class="btn-coral" style="margin-top:18px;padding:12px 24px;">Try again</a>
+    </div>
+  <% } else if (results && results.offers && results.offers.length > 0) { %>
+
+    <% if (results.mock) { %>
+      <div class="mock-notice">
+        <i data-lucide="info" style="width:14px;height:14px;"></i>
+        Showing demo results — set <code>DUFFEL_ACCESS_TOKEN</code> in <code>.env</code> for real fares.
+      </div>
+    <% } %>
+
+    <div class="results-toolbar">
+      <div class="results-count">
+        <span class="rc-num"><%= results.offers.length %></span>
+        <span class="rc-label">offers found</span>
+      </div>
+      <div class="results-sort">
+        <span class="sort-label">Sort by</span>
+        <button class="sort-btn active" data-sort="price">Cheapest</button>
+        <button class="sort-btn" data-sort="duration">Fastest</button>
+        <button class="sort-btn" data-sort="depart">Earliest</button>
+      </div>
+    </div>
+
+    <div class="offers-list" id="offersList">
+      <% results.offers.forEach((offer, idx) => { %>
+        <div class="offer-card" data-price="<%= offer.total_amount %>" data-duration="<%= offer.slices[0]?.duration_raw || '' %>" data-depart="<%= offer.slices[0]?.departure_iso || '' %>">
+          <div class="offer-left">
+            <div class="offer-carrier">
+              <% if (offer.carrier_logo) { %>
+                <img src="<%= offer.carrier_logo %>" alt="<%= offer.carrier %>" class="carrier-logo"/>
+              <% } else { %>
+                <div class="carrier-fallback"><%= offer.carrier_iata %></div>
+              <% } %>
+              <div class="carrier-name"><%= offer.carrier %></div>
+            </div>
+
+            <% offer.slices.forEach((slice, sliceIdx) => { %>
+              <div class="slice-row <%= sliceIdx > 0 ? 'slice-return' : '' %>">
+                <div class="slice-time">
+                  <div class="st-big"><%= slice.departure_time %></div>
+                  <div class="st-small"><%= slice.origin %></div>
+                </div>
+
+                <div class="slice-path">
+                  <div class="sp-duration"><%= slice.duration %></div>
+                  <div class="sp-line">
+                    <span class="sp-dot"></span>
+                    <span class="sp-bar"></span>
+                    <% if (slice.stops > 0) { %>
+                      <% for (let i = 0; i < slice.stops; i++) { %>
+                        <span class="sp-stop"></span>
+                        <span class="sp-bar"></span>
+                      <% } %>
+                    <% } %>
+                    <span class="sp-arrow"><i data-lucide="plane" style="width:12px;height:12px;"></i></span>
+                  </div>
+                  <div class="sp-stops">
+                    <% if (slice.stops === 0) { %>
+                      Direct
+                    <% } else { %>
+                      <%= slice.stops %> stop<%= slice.stops > 1 ? 's' : '' %>
+                    <% } %>
+                  </div>
+                </div>
+
+                <div class="slice-time">
+                  <div class="st-big"><%= slice.arrival_time %></div>
+                  <div class="st-small"><%= slice.destination %></div>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+
+          <div class="offer-right">
+            <div class="offer-price-label">Total for <%= offer.passenger_count %> pax</div>
+            <div class="offer-price">
+              <span class="op-currency"><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : (offer.total_currency === 'GBP' ? '£' : offer.total_currency + ' ')) %></span><%= Math.round(parseFloat(offer.total_amount)) %>
+            </div>
+            <a href="/offer/<%= offer.id %>" class="btn-coral offer-btn">
+              Select
+              <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+            </a>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } else { %>
+    <div class="results-empty">
+      <div class="empty-icon"><i data-lucide="search-x" style="width:42px;height:42px;"></i></div>
+      <h3>No flights found</h3>
+      <p>We couldn't find any flights matching your search. Try adjusting your dates or destination.</p>
+      <a href="/" class="btn-coral" style="margin-top:18px;padding:12px 24px;">New search</a>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

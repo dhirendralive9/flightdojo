@@ -1,0 +1,105 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<%- include('partials/page-header', {
+  eyebrow: 'Get In Touch',
+  title: 'Let\'s<br/><em>Talk</em>',
+  sub: 'Booking question? Press enquiry? Career interest? We respond to every message within 24 hours, often much sooner.'
+}) %>
+
+<section class="section reveal">
+  <div class="contact-grid">
+    <div class="contact-info-card">
+      <h3>Reach Us Directly</h3>
+
+      <div class="contact-method">
+        <div class="cm-icon"><i data-lucide="mail" style="width:18px;height:18px;"></i></div>
+        <div>
+          <div class="cm-label">General</div>
+          <div class="cm-val"><a href="mailto:hello@flightdojo.it.com">hello@flightdojo.it.com</a></div>
+          <div class="cm-sub">Responses within 24 hours</div>
+        </div>
+      </div>
+
+      <div class="contact-method">
+        <div class="cm-icon"><i data-lucide="life-buoy" style="width:18px;height:18px;"></i></div>
+        <div>
+          <div class="cm-label">Support</div>
+          <div class="cm-val"><a href="mailto:support@flightdojo.it.com">support@flightdojo.it.com</a></div>
+          <div class="cm-sub">24/7 booking &amp; flight help</div>
+        </div>
+      </div>
+
+      <div class="contact-method">
+        <div class="cm-icon"><i data-lucide="briefcase" style="width:18px;height:18px;"></i></div>
+        <div>
+          <div class="cm-label">Press</div>
+          <div class="cm-val"><a href="mailto:press@flightdojo.it.com">press@flightdojo.it.com</a></div>
+          <div class="cm-sub">Media &amp; partnership enquiries</div>
+        </div>
+      </div>
+
+      <div class="contact-method">
+        <div class="cm-icon"><i data-lucide="building" style="width:18px;height:18px;"></i></div>
+        <div>
+          <div class="cm-label">Office</div>
+          <div class="cm-val">Lazarus Consulting LLC</div>
+          <div class="cm-sub">1209 Orange Street<br/>Wilmington, DE 19801, USA</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="contact-form-card">
+      <% if (sent) { %>
+        <div class="success-banner">
+          <div class="check"><i data-lucide="check" style="width:18px;height:18px;"></i></div>
+          <div class="text">
+            <strong>Message sent.</strong>
+            We'll be in touch within 24 hours.
+          </div>
+        </div>
+      <% } %>
+
+      <h3>Send Us A Message</h3>
+      <p class="form-sub">Fill out the form below and we'll route it to the right person.</p>
+
+      <form action="/contact" method="POST">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" required placeholder="Marco Rossi"/>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required placeholder="you@example.com"/>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="topic">Topic</label>
+          <select id="topic" name="topic">
+            <option>General enquiry</option>
+            <option>Booking support</option>
+            <option>Refund request</option>
+            <option>Press / Media</option>
+            <option>Partnership</option>
+            <option>Careers</option>
+            <option>Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="message">Message</label>
+          <textarea id="message" name="message" required placeholder="Tell us what's on your mind..."></textarea>
+        </div>
+
+        <button type="submit" class="btn-search-full" style="margin-top:8px;">
+          <i data-lucide="send" style="width:16px;height:16px;"></i>
+          Send Message
+        </button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,244 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="hero">
+  <div class="hero-bg-lines"></div>
+
+  <div class="sky-canvas" aria-hidden="true">
+    <div class="plane plane-1">
+      <svg width="52" height="20" viewBox="0 0 52 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="#FF5038"/>
+      </svg>
+    </div>
+    <div class="plane plane-2">
+      <svg width="38" height="14" viewBox="0 0 52 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="currentColor" style="color: var(--text-muted); opacity:0.4;"/>
+      </svg>
+    </div>
+    <div class="plane plane-3">
+      <svg width="28" height="11" viewBox="0 0 52 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="currentColor" style="color: var(--text-muted); opacity:0.25;"/>
+      </svg>
+    </div>
+    <div class="dot" style="left:10%;top:20%;animation-duration:4s;"></div>
+    <div class="dot" style="left:25%;top:60%;animation-duration:5.5s;animation-delay:1s;"></div>
+    <div class="dot" style="left:70%;top:25%;animation-duration:3.8s;animation-delay:2s;"></div>
+    <div class="dot" style="left:85%;top:70%;animation-duration:6s;animation-delay:0.5s;"></div>
+    <div class="dot" style="left:50%;top:80%;animation-duration:4.5s;animation-delay:3s;"></div>
+  </div>
+
+  <div class="hero-left">
+    <div class="hero-tag">
+      <span class="hero-tag-dot"></span>
+      flightdojo.it.com
+    </div>
+    <h1 class="hero-title">
+      Find.<br/>
+      <span class="stroke">Book.</span><br/>
+      <span class="coral">Fly.</span>
+    </h1>
+    <p class="hero-sub">
+      No fluff. No bait-and-switch. Just the sharpest fares on every route — instantly, transparently, reliably.
+    </p>
+    <div class="hero-cta">
+      <button type="button" class="btn-coral" id="heroSearchBtn" style="padding:12px 26px;font-size:12px;">
+        <i data-lucide="search" style="width:16px;height:16px;"></i>
+        Search Flights
+      </button>
+      <a href="#popular-routes" class="btn-ghost-hero">
+        <i data-lucide="tag" style="width:14px;height:14px;"></i>
+        View Deals
+      </a>
+    </div>
+    <div class="hero-stats">
+      <div class="h-stat">
+        <div class="h-stat-n">740<span>+</span></div>
+        <div class="h-stat-l">Airlines</div>
+      </div>
+      <div class="h-stat">
+        <div class="h-stat-n">3.2<span>M</span></div>
+        <div class="h-stat-l">Routes</div>
+      </div>
+      <div class="h-stat">
+        <div class="h-stat-n">98<span>%</span></div>
+        <div class="h-stat-l">Accuracy</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <form class="search-card" action="/search" method="POST" id="searchForm">
+      <div class="search-tabs">
+        <button type="button" class="s-tab active" data-trip="round">Round Trip</button>
+        <button type="button" class="s-tab" data-trip="oneway">One Way</button>
+        <button type="button" class="s-tab" data-trip="multi" disabled title="Coming soon">Multi-City</button>
+      </div>
+      <div class="search-body">
+        <div class="s-field s-airport" data-field="origin">
+          <div class="s-field-icon"><i data-lucide="plane-takeoff" style="width:18px;height:18px;"></i></div>
+          <div class="s-field-text">
+            <label class="s-label" for="originInput">From</label>
+            <input type="text" id="originInput" name="origin" value="<%= prefill.origin %>" autocomplete="off" class="s-input" maxlength="3"/>
+            <div class="s-hint" id="originHint"><%= origin_info ? origin_info.name : 'Type airport code' %></div>
+          </div>
+          <div class="s-suggest" id="originSuggest"></div>
+        </div>
+
+        <div class="s-swap" id="swapBtn" title="Swap origin & destination">
+          <i data-lucide="arrow-up-down" style="width:14px;height:14px;"></i>
+        </div>
+
+        <div class="s-field s-airport" data-field="destination">
+          <div class="s-field-icon"><i data-lucide="plane-landing" style="width:18px;height:18px;"></i></div>
+          <div class="s-field-text">
+            <label class="s-label" for="destInput">To</label>
+            <input type="text" id="destInput" name="destination" value="<%= prefill.destination %>" autocomplete="off" class="s-input" maxlength="3"/>
+            <div class="s-hint" id="destHint"><%= destination_info ? destination_info.name : 'Type airport code' %></div>
+          </div>
+          <div class="s-suggest" id="destSuggest"></div>
+        </div>
+
+        <div class="s-row2">
+          <div class="s-field" style="margin-bottom:0;">
+            <div class="s-field-icon"><i data-lucide="calendar" style="width:16px;height:16px;"></i></div>
+            <div class="s-field-text">
+              <label class="s-label" for="departInput">Depart</label>
+              <input type="date" id="departInput" name="depart" value="<%= prefill.depart %>" class="s-input s-date" required/>
+            </div>
+          </div>
+          <div class="s-field" style="margin-bottom:0;" id="returnField">
+            <div class="s-field-icon"><i data-lucide="calendar-check" style="width:16px;height:16px;"></i></div>
+            <div class="s-field-text">
+              <label class="s-label" for="returnInput">Return</label>
+              <input type="date" id="returnInput" name="ret" value="<%= prefill.return %>" class="s-input s-date"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="pax-row" style="margin-top:4px;">
+          <div class="s-field-icon"><i data-lucide="users" style="width:16px;height:16px;color:var(--coral);opacity:0.8;"></i></div>
+          <div class="pax-txt">
+            <div class="s-label">Passengers</div>
+          </div>
+          <input type="hidden" name="passengers" id="paxInput" value="<%= prefill.passengers %>"/>
+          <div class="pax-ctrl">
+            <button type="button" class="pax-btn" data-pax="-1"><i data-lucide="minus" style="width:12px;height:12px;"></i></button>
+            <div class="pax-num" id="paxNum"><%= prefill.passengers %></div>
+            <button type="button" class="pax-btn" data-pax="1"><i data-lucide="plus" style="width:12px;height:12px;"></i></button>
+          </div>
+        </div>
+
+        <div class="turnstile-wrap" id="turnstileWrap">
+          <div id="turnstileWidget" class="turnstile-widget"></div>
+          <% if (turnstileTestMode) { %>
+            <div class="turnstile-dev-badge">
+              <i data-lucide="shield-check" style="width:11px;height:11px;"></i>
+              Dev mode
+            </div>
+          <% } %>
+        </div>
+
+        <button type="submit" class="btn-search-full" id="searchSubmit" disabled>
+          <i data-lucide="search" style="width:16px;height:16px;"></i>
+          <span>Search Flights</span>
+          <i data-lucide="arrow-right" style="width:16px;height:16px;opacity:0.7;"></i>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="ticker-wrap" aria-label="Live flight deals">
+  <div class="ticker-inner">
+    <% const deals = [
+      ['DEL → LHR','from €489'],['BOM → MXP','from €532'],['DEL → JFK','from $612'],
+      ['CCU → CDG','from €411'],['MAA → FCO','from €498'],['BLR → SIN','from $218']
+    ]; %>
+    <% for (let i = 0; i < 2; i++) { %>
+      <% deals.forEach(d => { %>
+        <div class="tick-item"><i data-lucide="zap" style="width:12px;height:12px;"></i> <%= d[0] %> <span class="tick-price"><%= d[1] %></span></div>
+        <div class="tick-item"><span class="tick-sep">·</span></div>
+      <% }) %>
+    <% } %>
+  </div>
+</div>
+
+<section class="section routes-section" id="popular-routes">
+  <div class="routes-header reveal">
+    <div>
+      <div class="sec-eyebrow">Top Destinations</div>
+      <div class="sec-title">Popular<br/>Routes</div>
+    </div>
+    <button class="view-all">View all routes <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></button>
+  </div>
+
+  <div class="routes-grid stagger">
+    <% const routes = [
+      ['DEL','LHR','Delhi Indira Gandhi → London Heathrow','€489','Direct'],
+      ['BOM','MXP','Mumbai Chhatrapati → Milan Malpensa','€532','Direct'],
+      ['DEL','JFK','Delhi Indira Gandhi → New York JFK','$612','1 Stop'],
+      ['CCU','CDG','Kolkata Netaji → Paris Charles de Gaulle','€411','1 Stop'],
+      ['MAA','FCO','Chennai Int\'l → Rome Fiumicino','€498','1 Stop'],
+      ['BLR','SIN','Bengaluru Kempegowda → Singapore Changi','$218','Direct']
+    ]; %>
+    <% routes.forEach(r => { %>
+      <a href="/search?origin=<%= r[0] %>&destination=<%= r[1] %>&depart=<%= prefill.depart %>&ret=<%= prefill.return %>&passengers=1" class="r-card">
+        <div class="r-route">
+          <span class="r-iata"><%= r[0] %></span>
+          <span class="r-arrow"><i data-lucide="arrow-right" style="width:16px;height:16px;"></i></span>
+          <span class="r-iata"><%= r[1] %></span>
+        </div>
+        <div class="r-name"><%= r[2] %></div>
+        <div class="r-footer">
+          <div>
+            <span class="r-from">From</span>
+            <div class="r-price"><%= r[3] %></div>
+          </div>
+          <div class="r-badge">
+            <i data-lucide="<%= r[4] === 'Direct' ? 'plane' : 'git-branch' %>" style="width:11px;height:11px;"></i>
+            <%= r[4] %>
+          </div>
+        </div>
+      </a>
+    <% }) %>
+  </div>
+</section>
+
+<section class="section features-section">
+  <div class="reveal">
+    <div class="sec-eyebrow">Why FlightDojo</div>
+    <div class="sec-title">Zero<br/>Compromise</div>
+  </div>
+  <div class="features-grid stagger">
+    <% const feats = [
+      ['zap','Real-time fares','Live airline feeds pulled every 90 seconds. No cached prices. No surprises at checkout.'],
+      ['shield-check','Zero hidden fees','Total cost shown before you pay. Taxes, baggage, and seat fees — all included upfront.'],
+      ['headphones','24/7 human support','Real agents, not bots. Flight disruption? We handle rerouting before you even land.'],
+      ['bell','Price alerts','Set a target fare on any route. We watch 24/7 and notify you the moment prices drop.']
+    ]; %>
+    <% feats.forEach(f => { %>
+      <div class="f-item">
+        <div class="f-icon"><i data-lucide="<%= f[0] %>" style="width:20px;height:20px;"></i></div>
+        <div class="f-title"><%= f[1] %></div>
+        <div class="f-desc"><%= f[2] %></div>
+      </div>
+    <% }) %>
+  </div>
+</section>
+
+<div class="deals-section reveal">
+  <div>
+    <div class="deals-tag">Deal Intelligence</div>
+    <div class="deals-title">Get Deal<br/>Alerts</div>
+    <div class="deals-sub">Error fares, flash sales &amp; business class upgrades — straight to your inbox.</div>
+  </div>
+  <div>
+    <div class="deals-form">
+      <input class="deals-input" type="email" placeholder="your@email.com"/>
+      <button class="deals-btn">Subscribe <i data-lucide="arrow-right" style="width:14px;height:14px;"></i></button>
+    </div>
+    <p style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:10px;font-weight:300;">No spam. Unsubscribe any time.</p>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

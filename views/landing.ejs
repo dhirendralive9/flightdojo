@@ -1,0 +1,269 @@
+<%- include('partials/head') %>
+
+<div class="landing-shell">
+
+  <!-- minimal top bar -->
+  <header class="landing-topbar">
+    <a href="/landing" class="logo">Flight<em>Dojo</em></a>
+    <div class="landing-topbar-right">
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <i data-lucide="sun" class="icon-sun" style="width:16px;height:16px;"></i>
+        <i data-lucide="moon" class="icon-moon" style="width:16px;height:16px;"></i>
+      </button>
+      <a href="/about" class="landing-link">About</a>
+      <a href="/contact" class="landing-link">Support</a>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <main class="landing-hero">
+
+    <!-- animated atmosphere -->
+    <div class="atmosphere" aria-hidden="true">
+      <!-- dot grid world map -->
+      <svg class="atm-map" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <radialGradient id="atmGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="var(--coral)" stop-opacity="0.18"/>
+            <stop offset="60%" stop-color="var(--coral)" stop-opacity="0"/>
+          </radialGradient>
+          <pattern id="dotPattern" x="0" y="0" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1.2" fill="var(--atm-dot)" />
+          </pattern>
+        </defs>
+        <rect width="1200" height="600" fill="url(#dotPattern)" opacity="0.7"/>
+        <ellipse cx="600" cy="320" rx="520" ry="240" fill="url(#atmGlow)" />
+
+        <!-- route lines -->
+        <g class="route-lines" stroke="var(--coral)" stroke-width="1.5" fill="none" opacity="0.45">
+          <path class="rl rl-1" d="M 180 380 Q 420 120 720 220" stroke-dasharray="4 6"/>
+          <path class="rl rl-2" d="M 240 200 Q 560 480 900 180" stroke-dasharray="3 7"/>
+          <path class="rl rl-3" d="M 980 420 Q 700 200 380 480" stroke-dasharray="2 8"/>
+          <path class="rl rl-4" d="M 100 280 Q 500 420 1060 300" stroke-dasharray="4 5"/>
+        </g>
+
+        <!-- city dots -->
+        <g class="cities">
+          <g transform="translate(180,380)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">DEL</text>
+          </g>
+          <g transform="translate(720,220)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">LHR</text>
+          </g>
+          <g transform="translate(900,180)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">JFK</text>
+          </g>
+          <g transform="translate(240,200)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">FRA</text>
+          </g>
+          <g transform="translate(380,480)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">SIN</text>
+          </g>
+          <g transform="translate(980,420)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">SYD</text>
+          </g>
+          <g transform="translate(560,300)" class="city">
+            <circle r="3.5" fill="var(--coral)"/>
+            <circle r="10" fill="none" stroke="var(--coral)" stroke-width="1" class="city-ring"/>
+            <text x="10" y="4" class="city-label">DXB</text>
+          </g>
+        </g>
+      </svg>
+
+      <!-- flying planes -->
+      <div class="plane plane-l1">
+        <svg width="48" height="18" viewBox="0 0 52 24" fill="none">
+          <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="var(--coral)"/>
+        </svg>
+      </div>
+      <div class="plane plane-l2">
+        <svg width="32" height="12" viewBox="0 0 52 24" fill="none">
+          <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="currentColor" style="color:var(--text-muted);opacity:0.45;"/>
+        </svg>
+      </div>
+      <div class="plane plane-l3">
+        <svg width="24" height="9" viewBox="0 0 52 24" fill="none">
+          <path d="M48 12L36 6V2C36 0.9 35.1 0 34 0H32C30.9 0 30 0.9 30 2V7L18 10L4 7V10L16 14L4 17V20L18 17L30 20V22C30 23.1 30.9 24 32 24H34C35.1 24 36 23.1 36 22V18L48 14C50 13 52 12.5 52 12C52 11.5 50 11 48 12Z" fill="currentColor" style="color:var(--text-muted);opacity:0.3;"/>
+        </svg>
+      </div>
+
+      <!-- floating sparkles -->
+      <span class="sp sp1"></span>
+      <span class="sp sp2"></span>
+      <span class="sp sp3"></span>
+      <span class="sp sp4"></span>
+      <span class="sp sp5"></span>
+      <span class="sp sp6"></span>
+    </div>
+
+    <!-- hero content -->
+    <div class="landing-content">
+
+      <div class="landing-eyebrow">
+        <span class="le-dot"></span>
+        <span>flightdojo.it.com</span>
+        <span class="le-sep">·</span>
+        <span>740+ airlines</span>
+      </div>
+
+      <h1 class="landing-title">
+        Search smarter.<br/>
+        <span class="lt-coral">Fly sharper.</span>
+      </h1>
+
+      <p class="landing-sub">
+        Real-time fares from over 740 airlines. Zero hidden fees. Total price shown before you click book — every single time.
+      </p>
+
+      <!-- SEARCH CARD -->
+      <form class="landing-search" action="/search" method="POST" id="searchForm">
+
+        <div class="ls-row ls-airports">
+          <div class="ls-field s-airport" data-field="origin">
+            <div class="ls-label">From</div>
+            <div class="ls-field-row">
+              <i data-lucide="plane-takeoff" class="ls-icon"></i>
+              <input type="text" id="originInput" name="origin" value="<%= prefill.origin %>" autocomplete="off" class="ls-input" maxlength="3"/>
+            </div>
+            <div class="ls-hint" id="originHint"><%= origin_info ? origin_info.name : 'Origin airport' %></div>
+            <div class="s-suggest" id="originSuggest"></div>
+          </div>
+
+          <button type="button" class="ls-swap" id="swapBtn" title="Swap origin and destination" aria-label="Swap origin and destination">
+            <i data-lucide="arrow-right-left" style="width:16px;height:16px;"></i>
+          </button>
+
+          <div class="ls-field s-airport" data-field="destination">
+            <div class="ls-label">To</div>
+            <div class="ls-field-row">
+              <i data-lucide="plane-landing" class="ls-icon"></i>
+              <input type="text" id="destInput" name="destination" value="<%= prefill.destination %>" autocomplete="off" class="ls-input" maxlength="3"/>
+            </div>
+            <div class="ls-hint" id="destHint"><%= destination_info ? destination_info.name : 'Destination airport' %></div>
+            <div class="s-suggest" id="destSuggest"></div>
+          </div>
+        </div>
+
+        <div class="ls-row ls-dates">
+          <div class="ls-field">
+            <div class="ls-label">Depart</div>
+            <div class="ls-field-row">
+              <i data-lucide="calendar" class="ls-icon"></i>
+              <input type="date" id="departInput" name="depart" value="<%= prefill.depart %>" class="ls-input ls-date" required/>
+            </div>
+          </div>
+          <div class="ls-field" id="returnField">
+            <div class="ls-label">Return</div>
+            <div class="ls-field-row">
+              <i data-lucide="calendar-check" class="ls-icon"></i>
+              <input type="date" id="returnInput" name="ret" value="<%= prefill.return %>" class="ls-input ls-date"/>
+            </div>
+          </div>
+          <div class="ls-field ls-pax-field">
+            <div class="ls-label">Passengers</div>
+            <div class="ls-field-row">
+              <i data-lucide="users" class="ls-icon"></i>
+              <input type="hidden" name="passengers" id="paxInput" value="<%= prefill.passengers %>"/>
+              <div class="ls-pax-ctrl">
+                <button type="button" class="pax-btn" data-pax="-1"><i data-lucide="minus" style="width:11px;height:11px;"></i></button>
+                <span class="pax-num" id="paxNum"><%= prefill.passengers %></span>
+                <button type="button" class="pax-btn" data-pax="1"><i data-lucide="plus" style="width:11px;height:11px;"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ls-row ls-actions">
+          <div class="ls-turnstile">
+            <div id="turnstileWidget" class="turnstile-widget"></div>
+            <% if (turnstileTestMode) { %>
+              <span class="ls-dev-badge">Dev</span>
+            <% } %>
+          </div>
+
+          <button type="submit" class="ls-submit" id="searchSubmit" disabled>
+            <i data-lucide="search" style="width:18px;height:18px;"></i>
+            <span>Search Flights</span>
+            <i data-lucide="arrow-right" style="width:18px;height:18px;"></i>
+          </button>
+        </div>
+
+      </form>
+
+      <!-- trust strip -->
+      <div class="landing-trust">
+        <div class="lt-item">
+          <i data-lucide="shield-check" style="width:14px;height:14px;"></i>
+          <span>Secure booking</span>
+        </div>
+        <div class="lt-sep"></div>
+        <div class="lt-item">
+          <i data-lucide="receipt" style="width:14px;height:14px;"></i>
+          <span>No hidden fees</span>
+        </div>
+        <div class="lt-sep"></div>
+        <div class="lt-item">
+          <i data-lucide="headphones" style="width:14px;height:14px;"></i>
+          <span>24/7 support</span>
+        </div>
+        <div class="lt-sep"></div>
+        <div class="lt-item">
+          <i data-lucide="bell" style="width:14px;height:14px;"></i>
+          <span>Price alerts</span>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- FOOTER MENU -->
+  <footer class="landing-footer">
+    <div class="lf-cols">
+      <div class="lf-brand">
+        <div class="logo">Flight<em>Dojo</em></div>
+        <p class="lf-tagline">Precision flight search for travellers who mean business.</p>
+      </div>
+      <div class="lf-links">
+        <div class="lf-col">
+          <h4>Product</h4>
+          <a href="/">Search flights</a>
+          <a href="/">Price alerts</a>
+          <a href="/">Deals</a>
+        </div>
+        <div class="lf-col">
+          <h4>Company</h4>
+          <a href="/about">About</a>
+          <a href="/careers">Careers</a>
+          <a href="/contact">Contact</a>
+        </div>
+        <div class="lf-col">
+          <h4>Legal</h4>
+          <a href="/privacy-policy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/disclaimer">Disclaimer</a>
+          <a href="/refund-policy">Refund Policy</a>
+        </div>
+      </div>
+    </div>
+    <div class="lf-bottom">
+      <span>© <%= year %> Lazarus Consulting LLC · Delaware, USA</span>
+      <span>flightdojo.it.com</span>
+    </div>
+  </footer>
+</div>
+
+<script src="/js/main.js"></script>
+</body>
+</html>

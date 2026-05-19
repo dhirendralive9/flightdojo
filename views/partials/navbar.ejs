@@ -1,0 +1,25 @@
+<nav class="navbar">
+  <a href="/" class="logo">Flight<em>Dojo</em></a>
+  <ul class="nav-center">
+    <% navLinks.forEach(link => { %>
+      <li><a href="<%= link.href %>" class="<%= currentPath === link.href ? 'active' : '' %>"><%= link.label %></a></li>
+    <% }) %>
+  </ul>
+  <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+      <i data-lucide="sun" class="icon-sun" style="width:16px;height:16px;"></i>
+      <i data-lucide="moon" class="icon-moon" style="width:16px;height:16px;"></i>
+    </button>
+    <a href="/" class="btn-coral">Search Flights</a>
+    <button class="hamburger" id="hamburger" aria-label="Menu">
+      <i data-lucide="menu" style="width:22px;height:22px;"></i>
+    </button>
+  </div>
+</nav>
+
+<div class="mobile-menu" id="mobileMenu">
+  <% navLinks.forEach(link => { %>
+    <a href="<%= link.href %>" class="<%= currentPath === link.href ? 'active' : '' %>"><%= link.label %></a>
+  <% }) %>
+  <a href="/" class="btn-coral mobile-only">Search Flights</a>
+</div>

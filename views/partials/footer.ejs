@@ -1,0 +1,46 @@
+<footer class="site-footer">
+  <div class="footer-top">
+    <div class="footer-brand">
+      <a href="/" class="logo">Flight<em>Dojo</em></a>
+      <p>Precision flight search for travellers who mean business. Operated by Lazarus Consulting LLC.</p>
+    </div>
+    <div class="footer-links">
+      <div class="footer-col">
+        <h4>Product</h4>
+        <ul>
+          <% footerLinks.product.forEach(l => { %>
+            <li><a href="<%= l.href %>"><%= l.label %></a></li>
+          <% }) %>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <ul>
+          <% footerLinks.company.forEach(l => { %>
+            <li><a href="<%= l.href %>"><%= l.label %></a></li>
+          <% }) %>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Legal</h4>
+        <ul>
+          <% footerLinks.support.forEach(l => { %>
+            <li><a href="<%= l.href %>"><%= l.label %></a></li>
+          <% }) %>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© <%= year %> Lazarus Consulting LLC · Delaware, USA · flightdojo.it.com</div>
+    <div class="footer-legal">
+      <a href="/privacy-policy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+  </div>
+</footer>
+
+<script src="/js/main.js"></script>
+</body>
+</html>
