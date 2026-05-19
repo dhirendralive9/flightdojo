@@ -131,13 +131,14 @@
           </div>
         </div>
 
-        <button class="btn-coral od-book-btn">
+        <a href="/book/<%= offer.id %>" class="btn-coral od-book-btn">
           <i data-lucide="ticket" style="width:16px;height:16px;"></i>
           Continue to Book
-        </button>
+        </a>
 
         <p class="od-disclaimer">
-          Booking flow is currently in test mode. No real payment will be charged. Connect Duffel Payments &amp; passenger collection to complete.
+          Booking is in <strong>test mode</strong>. No real charge will be made.
+          Use Stripe test card <code>4242 4242 4242 4242</code> with any future expiry / CVC / postal code.
         </p>
 
         <div class="od-trust">

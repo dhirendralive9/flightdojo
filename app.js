@@ -2,17 +2,36 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
-const { searchOffers, getOffer } = require('./services/duffel');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
+
+const { searchOffers, getOffer, createOrder: createDuffelOrder } = require('./services/duffel');
 const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
+const stripeService = require('./services/stripe');
+const proxycheck = require('./services/proxycheck');
+const mailer = require('./services/mailer');
+const Order = require('./models/Order');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+// ─── MongoDB ─────────────────────────────────────────────
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/flightdojo';
+mongoose.connect(mongoUri)
+  .then(() => console.log(`🍃 MongoDB connected: ${mongoUri.replace(/\/\/[^@]*@/, '//***@')}`))
+  .catch(err => console.warn('⚠  MongoDB connection failed:', err.message, '— orders will not persist'));
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+app.set('trust proxy', true);
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── Stripe webhook MUST be raw before JSON parser ─────────
+app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
@@ -22,7 +41,6 @@ const navLinks = [
   { label: 'Careers', href: '/careers' },
   { label: 'Contact', href: '/contact' }
 ];
-
 const footerLinks = {
   product: [
     { label: 'Search Flights', href: '/' },
@@ -49,6 +67,7 @@ app.use((req, res, next) => {
   res.locals.year = new Date().getFullYear();
   res.locals.turnstileSitekey = turnstile.sitekey;
   res.locals.turnstileTestMode = turnstile.isTestMode;
+  res.locals.stripePublishableKey = stripeService.publishableKey;
   next();
 });
 
@@ -64,17 +83,23 @@ function defaultDates() {
   };
 }
 
+function generateReference() {
+  // FD-XXXX-YYYY format, lightly readable
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) {
+    s += chars[crypto.randomBytes(1)[0] % chars.length];
+    if (i === 3) s += '-';
+  }
+  return `FD-${s}`;
+}
+
+// ─── PUBLIC PAGES ────────────────────────────────────────
 app.get('/', (req, res) => {
   const dates = defaultDates();
   res.render('home', {
     title: 'FlightDojo — Find. Book. Fly.',
-    prefill: {
-      origin: 'DEL',
-      destination: 'MXP',
-      depart: dates.depart,
-      return: dates.return,
-      passengers: 1
-    },
+    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
     origin_info: airportsService.byIata('DEL'),
     destination_info: airportsService.byIata('MXP')
   });
@@ -84,13 +109,7 @@ app.get('/landing', (req, res) => {
   const dates = defaultDates();
   res.render('landing', {
     title: 'FlightDojo — Search smarter. Fly sharper.',
-    prefill: {
-      origin: 'DEL',
-      destination: 'MXP',
-      depart: dates.depart,
-      return: dates.return,
-      passengers: 1
-    },
+    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
     origin_info: airportsService.byIata('DEL'),
     destination_info: airportsService.byIata('MXP')
   });
@@ -101,19 +120,13 @@ async function handleSearch(req, res) {
   const { origin, destination, depart, ret, passengers, cabin, max_connections } = params;
   const turnstileToken = params['cf-turnstile-response'] || params.turnstile_token;
 
-  if (!origin || !destination || !depart) {
-    return res.redirect('/');
-  }
+  if (!origin || !destination || !depart) return res.redirect('/');
 
-  // Verify Turnstile token on POST submissions (from the search form).
-  // GET requests (e.g. from internal route cards or shared links) skip verification
-  // since they're not user-submitted form data.
   if (req.method === 'POST') {
-    const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const ip = proxycheck.clientIp(req);
     const verification = await turnstile.verify(turnstileToken, ip);
-
     if (!verification.success) {
-      console.warn('Turnstile verification failed:', verification.error_codes || verification.error);
+      console.warn('Turnstile failed:', verification.error_codes || verification.error);
       return res.status(403).render('search-results', {
         title: 'Verification failed — FlightDojo',
         query: { origin, destination, depart, ret: ret || null, passengers: parseInt(passengers, 10) || 1, cabin: cabin || 'economy' },
@@ -127,7 +140,6 @@ async function handleSearch(req, res) {
 
   let results = null;
   let error = null;
-
   try {
     results = await searchOffers({
       origin: origin.toUpperCase(),
@@ -146,29 +158,23 @@ async function handleSearch(req, res) {
   res.render('search-results', {
     title: `Flights ${origin} → ${destination} — FlightDojo`,
     query: {
-      origin: origin.toUpperCase(),
-      destination: destination.toUpperCase(),
-      depart,
-      ret: ret || null,
+      origin: origin.toUpperCase(), destination: destination.toUpperCase(),
+      depart, ret: ret || null,
       passengers: parseInt(passengers, 10) || 1,
       cabin: cabin || 'economy'
     },
     origin_info: airportsService.byIata(origin),
     destination_info: airportsService.byIata(destination),
-    results,
-    error
+    results, error
   });
 }
-
 app.get('/search', handleSearch);
 app.post('/search', handleSearch);
 
 app.get('/offer/:id', async (req, res) => {
   try {
     const { offer } = await getOffer(req.params.id);
-    if (!offer) {
-      return res.status(404).render('404', { title: '404 — FlightDojo' });
-    }
+    if (!offer) return res.status(404).render('404', { title: '404 — FlightDojo' });
     res.render('offer-detail', {
       title: `Offer ${offer.id} — FlightDojo`,
       offer,
@@ -182,10 +188,259 @@ app.get('/offer/:id', async (req, res) => {
 });
 
 app.get('/api/airports/search', (req, res) => {
-  const q = req.query.q || '';
-  res.json({ results: airportsService.search(q, 8) });
+  res.json({ results: airportsService.search(req.query.q || '', 8) });
 });
 
+// ─── BOOKING FLOW ────────────────────────────────────────
+
+// Step 1: Passenger details form
+app.get('/book/:offerId', async (req, res) => {
+  try {
+    const { offer } = await getOffer(req.params.offerId);
+    if (!offer) return res.status(404).render('404', { title: '404 — FlightDojo' });
+    res.render('booking-form', {
+      title: `Book ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination} — FlightDojo`,
+      offer,
+      origin_info: airportsService.byIata(offer.slices[0]?.origin),
+      destination_info: airportsService.byIata(offer.slices[0]?.destination)
+    });
+  } catch (err) {
+    console.error('Book page error:', err);
+    res.status(500).render('404', { title: 'Error — FlightDojo' });
+  }
+});
+
+// Step 2: Submit passenger details → ProxyCheck → Create Order + PaymentIntent
+app.post('/api/book/intent', async (req, res) => {
+  try {
+    const { offer_id, passengers, contact_email, contact_phone } = req.body;
+
+    if (!offer_id || !passengers || !passengers.length || !contact_email) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ───── SECURITY: ProxyCheck IP gate ─────
+    const ip = proxycheck.clientIp(req);
+    const proxyResult = await proxycheck.check(ip, 'flightdojo_booking');
+
+    if (proxyResult.recommendation === 'deny') {
+      // Persist the rejection too so we can audit/measure
+      try {
+        await Order.create({
+          reference: generateReference(),
+          status: 'risk_blocked',
+          duffel_offer_id: offer_id,
+          contact_email,
+          contact_phone,
+          passengers,
+          proxy_check: proxyResult,
+          failure_reason: `IP risk gate: ${proxyResult.proxy ? 'proxy' : proxyResult.vpn ? 'vpn' : proxyResult.tor ? 'tor' : proxyResult.hosting ? 'datacenter' : proxyResult.scraper ? 'scraper' : 'high-risk'} (score ${proxyResult.risk_score})`
+        });
+      } catch (e) { /* DB optional */ }
+
+      const reason = proxyResult.proxy ? 'a proxy' :
+        proxyResult.vpn ? 'a VPN' :
+        proxyResult.tor ? 'the Tor network' :
+        proxyResult.hosting ? 'a datacenter / hosting IP' :
+        proxyResult.scraper ? 'an automated scraper' :
+        'a high-risk network';
+      return res.status(403).json({
+        error: 'payment_blocked',
+        message: `For your security, we can't process payments from ${reason}. Please disable any VPN or proxy and try again from a regular internet connection.`,
+        ip_info: {
+          country: proxyResult.country,
+          isp: proxyResult.isp,
+          risk_score: proxyResult.risk_score
+        }
+      });
+    }
+
+    // Fetch fresh offer (Duffel offers expire)
+    const { offer } = await getOffer(offer_id);
+    if (!offer) return res.status(404).json({ error: 'Offer not found or expired' });
+
+    // Create Order in DB
+    const reference = generateReference();
+    const amount = parseFloat(offer.total_amount);
+    const currency = offer.total_currency || 'EUR';
+
+    let order;
+    try {
+      order = await Order.create({
+        reference,
+        status: 'awaiting_payment',
+        duffel_offer_id: offer_id,
+        total_amount: offer.total_amount,
+        total_currency: currency,
+        base_amount: offer.base_amount,
+        tax_amount: offer.tax_amount,
+        carrier: offer.carrier,
+        carrier_iata: offer.carrier_iata,
+        passenger_count: offer.passenger_count,
+        slices: offer.slices,
+        passengers,
+        contact_email,
+        contact_phone,
+        proxy_check: proxyResult
+      });
+    } catch (err) {
+      console.warn('Order persistence skipped:', err.message);
+      // Continue without DB so the demo still works
+      order = { reference, _id: null };
+    }
+
+    // Create Stripe PaymentIntent
+    const intent = await stripeService.createPaymentIntent({
+      amount,
+      currency,
+      receipt_email: contact_email,
+      metadata: {
+        order_reference: reference,
+        duffel_offer_id: offer_id,
+        description: `FlightDojo ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination}`
+      }
+    });
+
+    if (order._id) {
+      try {
+        await Order.updateOne(
+          { _id: order._id },
+          { stripe_payment_intent_id: intent.id, stripe_amount: intent.amount, stripe_currency: intent.currency }
+        );
+      } catch (e) { /* ignore */ }
+    }
+
+    res.json({
+      client_secret: intent.client_secret,
+      payment_intent_id: intent.id,
+      order_reference: reference,
+      amount,
+      currency,
+      mock: !!intent._mock
+    });
+  } catch (err) {
+    console.error('Book intent error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create payment intent' });
+  }
+});
+
+// Step 3: After Stripe redirects back, show status
+app.get('/booking/:reference', async (req, res) => {
+  const order = await Order.findOne({ reference: req.params.reference }).catch(() => null);
+  res.render('booking-status', {
+    title: `Booking ${req.params.reference} — FlightDojo`,
+    order,
+    reference: req.params.reference,
+    payment_intent_client_secret: req.query.payment_intent_client_secret || null,
+    payment_intent_id: req.query.payment_intent || null
+  });
+});
+
+// Status JSON for poll-while-waiting
+app.get('/api/booking/:reference/status', async (req, res) => {
+  const order = await Order.findOne({ reference: req.params.reference }).catch(() => null);
+  if (!order) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    reference: order.reference,
+    status: order.status,
+    booking_reference: order.booking_reference,
+    duffel_order_id: order.duffel_order_id,
+    email_sent: !!order.email_sent_at,
+    failure_reason: order.failure_reason
+  });
+});
+
+// ─── STRIPE WEBHOOK HANDLER ──────────────────────────────
+async function handleStripeWebhook(req, res) {
+  let event;
+  try {
+    event = stripeService.constructWebhookEvent(req.body, req.headers['stripe-signature']);
+  } catch (err) {
+    console.error('Webhook signature failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  if (!event) return res.status(400).send('Invalid event');
+
+  console.log('📨 Stripe event:', event.type);
+
+  if (event.type === 'payment_intent.succeeded') {
+    const pi = event.data.object;
+    const reference = pi.metadata?.order_reference;
+    if (!reference) {
+      console.warn('Webhook: no order_reference in metadata');
+      return res.json({ received: true });
+    }
+
+    try {
+      const order = await Order.findOne({ reference });
+      if (!order) {
+        console.warn('Webhook: order not found', reference);
+        return res.json({ received: true });
+      }
+      if (order.status === 'booked') {
+        console.log('Webhook: order already booked', reference);
+        return res.json({ received: true, already: true });
+      }
+
+      // Mark paid
+      order.status = 'paid';
+      order.stripe_payment_status = pi.status;
+      order.stripe_payment_method = pi.payment_method_types?.[0] || null;
+      await order.save();
+
+      // Create Duffel order
+      try {
+        const duffelOrder = await createDuffelOrder({
+          offerId: order.duffel_offer_id,
+          passengers: order.passengers,
+          contact: { email: order.contact_email, phone: order.contact_phone },
+          amount: order.total_amount,
+          currency: order.total_currency
+        });
+        order.duffel_order_id = duffelOrder.id;
+        order.booking_reference = duffelOrder.booking_reference;
+        order.status = 'booked';
+        await order.save();
+        console.log(`✓ Booked ${reference} → ${duffelOrder.booking_reference}`);
+      } catch (err) {
+        console.error('Duffel order failed after payment:', err.errors || err.message);
+        order.status = 'failed';
+        order.failure_reason = err.errors?.[0]?.message || err.message || 'Booking creation failed';
+        await order.save();
+      }
+
+      // Send confirmation
+      if (order.status === 'booked') {
+        const sent = await mailer.sendBookingConfirmation(order.toObject());
+        if (sent) {
+          order.email_sent_at = new Date();
+          await order.save();
+        }
+      }
+    } catch (err) {
+      console.error('Webhook processing error:', err);
+    }
+  } else if (event.type === 'payment_intent.payment_failed') {
+    const pi = event.data.object;
+    const reference = pi.metadata?.order_reference;
+    if (reference) {
+      try {
+        await Order.updateOne(
+          { reference },
+          {
+            status: 'failed',
+            stripe_payment_status: pi.status,
+            failure_reason: pi.last_payment_error?.message || 'Payment failed'
+          }
+        );
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  res.json({ received: true });
+}
+
+// ─── STATIC PAGES ────────────────────────────────────────
 app.get('/about', (req, res) => res.render('about', { title: 'About — FlightDojo' }));
 app.get('/careers', (req, res) => res.render('careers', { title: 'Careers — FlightDojo' }));
 app.get('/contact', (req, res) => res.render('contact', { title: 'Contact — FlightDojo', sent: false }));
@@ -198,11 +453,12 @@ app.get('/disclaimer', (req, res) => res.render('disclaimer', { title: 'Disclaim
 app.get('/refund-policy', (req, res) => res.render('refund-policy', { title: 'Refund Policy — FlightDojo' }));
 app.get('/terms', (req, res) => res.render('terms', { title: 'Terms of Service — FlightDojo' }));
 
-app.use((req, res) => {
-  res.status(404).render('404', { title: '404 — FlightDojo' });
-});
+app.use((req, res) => res.status(404).render('404', { title: '404 — FlightDojo' }));
 
 app.listen(PORT, () => {
   console.log(`FlightDojo running on http://localhost:${PORT}`);
-  console.log(`Duffel mode: ${process.env.DUFFEL_ACCESS_TOKEN && !process.env.DUFFEL_ACCESS_TOKEN.includes('REPLACE_ME') ? 'LIVE' : 'MOCK (set DUFFEL_ACCESS_TOKEN)'}`);
+  console.log(`Base URL: ${BASE_URL}`);
+  console.log(`Duffel: ${process.env.DUFFEL_ACCESS_TOKEN && !process.env.DUFFEL_ACCESS_TOKEN.includes('REPLACE_ME') ? 'LIVE' : 'MOCK'}`);
+  console.log(`Stripe: ${stripeService.hasRealKey ? 'LIVE' : 'MOCK'}`);
+  console.log(`ProxyCheck: ${process.env.PROXYCHECK_API_KEY ? 'ENABLED' : 'PERMISSIVE (no key)'}`);
 });

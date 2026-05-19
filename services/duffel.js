@@ -166,6 +166,53 @@ async function getOffer(offerId) {
   return { offer: normalizeOffer(response.data) };
 }
 
+async function createOrder({ offerId, passengers, contact, amount, currency }) {
+  if (!duffel) {
+    // Mock booking — generate fake PNR + Duffel-style order ID
+    const pnr = Math.random().toString(36).slice(2, 8).toUpperCase();
+    return {
+      id: 'ord_mock_' + Math.random().toString(36).slice(2, 12),
+      booking_reference: pnr,
+      _mock: true
+    };
+  }
+
+  // Real Duffel order creation. Note: in test mode, payments[].type='balance'
+  // uses Duffel's test balance — no real money. In production you'd use Duffel
+  // Payments or remit per booking from your card balance.
+  try {
+    const orderResponse = await duffel.orders.create({
+      type: 'instant',
+      selected_offers: [offerId],
+      passengers: passengers.map((p, idx) => ({
+        id: p.id || `pas_${idx}`,
+        type: p.type || 'adult',
+        title: p.title,
+        gender: p.gender,
+        given_name: p.given_name,
+        family_name: p.family_name,
+        born_on: p.born_on,
+        email: p.email || contact.email,
+        phone_number: p.phone_number || contact.phone
+      })),
+      payments: [{
+        type: 'balance',
+        amount: String(amount),
+        currency: currency
+      }],
+      metadata: { source: 'flightdojo' }
+    });
+    return {
+      id: orderResponse.data.id,
+      booking_reference: orderResponse.data.booking_reference,
+      raw: orderResponse.data
+    };
+  } catch (err) {
+    console.error('Duffel order create failed:', err.errors || err.message);
+    throw err;
+  }
+}
+
 function mockOffers({ origin, destination, depart_date, return_date, passengers }) {
   const carriers = [
     { name: 'British Airways', iata: 'BA' },
@@ -206,4 +253,4 @@ function mockOffers({ origin, destination, depart_date, return_date, passengers 
   };
 }
 
-module.exports = { searchOffers, getOffer, normalizeOffer };
+module.exports = { searchOffers, getOffer, createOrder, normalizeOffer };

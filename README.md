@@ -1,131 +1,173 @@
 # FlightDojo
 
-Precision flight search marketing site + working search engine for Lazarus Consulting LLC.
-Built with Node.js, Express, EJS, Duffel API, and protected by Cloudflare Turnstile.
+Full-stack flight search + booking site for Lazarus Consulting LLC.
+Node.js · Express · EJS · MongoDB · Duffel · Stripe · ProxyCheck.io · Nodemailer.
 
-## What's new in this build
+## What's in this build
 
-- **Cloudflare Turnstile** — bot protection on the search form with theme-responsive widget
-- **Duffel API integration** — real flight search via `@duffel/api` SDK
-- **Working search form** — autocomplete, real date pickers, swap button, passenger counter
-- **Search results page** — sortable offers, carrier logos, full slice/segment display
-- **Offer detail page** — full segment breakdown with sticky price summary sidebar
-- **Graceful fallbacks** — runs with mock data if `DUFFEL_ACCESS_TOKEN` isn't set; test Turnstile keys by default
-- **In-memory caching** — 5-minute TTL on identical searches to protect quota
-- **Light & dark mode** with persistence — Turnstile re-renders on theme toggle
+- **End-to-end booking flow** — passenger details → IP risk gate → embedded payment → 3DS → confirmation email
+- **Stripe Elements PaymentElement** embedded on FlightDojo (no Stripe-hosted redirect), full 3DS support, theme-syncs with site light/dark
+- **ProxyCheck.io v3** IP risk gate runs *before* PaymentIntent creation — blocks proxies, VPNs, Tor, datacenter IPs, scrapers
+- **MongoDB orders** with full audit trail (proxy check result, Stripe IDs, Duffel order, passengers, email status)
+- **Stripe webhooks** create the Duffel order and send confirmation email — never relies on the redirect for fulfillment
+- **Branded HTML emails** via Nodemailer, inline-styled to match site palette (coral, charcoal, parchment)
+- **Cloudflare Turnstile** on search form
+- **Smart 366-airport search** with diacritic + alias support
+- **Light + dark mode** persists across all pages
 
-## Setup
+## Quick start
 
 ```bash
 npm install
 cp .env.example .env
-# edit .env and add your Duffel test token:
-#   DUFFEL_ACCESS_TOKEN=duffel_test_xxxxx
+# fill in keys (see below)
 npm start
 ```
 
-Server runs at http://localhost:3000
+The app boots gracefully with no keys at all — Duffel falls back to mock offers, Stripe falls back to mock intents, MongoDB just logs a warning, ProxyCheck stays permissive, SMTP logs emails to console. **You can preview every page without any external services.**
 
-### Getting a Duffel test token
-
-1. Sign up at https://app.duffel.com (free, no credit card)
-2. Navigate to **Developers → Access Tokens**
-3. Create a token of type **test** — it starts with `duffel_test_`
-4. Paste it into `.env`
-
-If no token is set, the app runs in **MOCK mode** showing demo offers so the UI is fully testable without credentials.
-
-## Cloudflare Turnstile
-
-The search form is protected by [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/).
-Out of the box it uses Cloudflare's **test sitekey** (`1x00000000000000000000AA`) and **test secret** (`1x0000000000000000000000000000000AA`) that always pass — so you can develop on localhost without setting anything up.
-
-For production, get real keys at https://dash.cloudflare.com → Turnstile → Add Site, then set:
+## The flow
 
 ```
-TURNSTILE_SITEKEY=0x4AAAAAAA...
-TURNSTILE_SECRET=0x4AAAAAAA...
+/                            → Home with search form
+/landing                     → Conversion-focused ads landing
+/search?…                    → Live results from Duffel
+/offer/:id                   → Detailed offer breakdown
+/book/:offerId               → Passenger details + embedded Stripe form
+    ↓
+POST /api/book/intent        → 1. ProxyCheck v3 IP risk gate
+                               2. If allowed: create MongoDB Order
+                               3. Create Stripe PaymentIntent
+                               4. Return client_secret + reference
+    ↓
+Client mounts Stripe PaymentElement (in-page, themed)
+User submits → stripe.confirmPayment runs 3DS in-iframe
+    ↓
+return_url → /booking/:reference?payment_intent=…
+    ↓
+Stripe webhook fires payment_intent.succeeded
+    ↓
+Backend: duffel.orders.create() → save booking_reference → send email
+    ↓
+/booking/:reference polls /api/booking/:reference/status
+    ↓ (status=booked)
+Page reloads → renders success view with PNR + itinerary
 ```
 
-Implementation details:
-- Explicit-render mode via `turnstile.render()` (gives lifecycle control)
-- Theme follows the site's light/dark toggle — widget re-renders on theme change
-- `size: flexible` for responsive width
-- Server-side token verification via `siteverify` on every POST to `/search`
-- Submit button stays disabled until token is issued
-- GET `/search` (used for shareable links / route card clicks) skips verification since those aren't user form submissions
+## Required services
 
-## Routes
+### Duffel (flight inventory + ticketing)
+1. Sign up free at https://app.duffel.com (no credit card)
+2. Developers → Access Tokens → create a **test** token (starts with `duffel_test_`)
+3. `DUFFEL_ACCESS_TOKEN=duffel_test_xxxxx`
 
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/` | GET | Home / full landing with search form, routes, features |
-| `/landing` | GET | **Focused, ad-friendly landing page** — animated atmosphere, search + Turnstile, footer menu only |
-| `/search?origin=&destination=&depart=&ret=&passengers=&cabin=` | GET | Live flight search results |
-| `/search` | POST | Form submission with Turnstile verification |
-| `/offer/:id` | GET | Detailed offer view with full segments |
-| `/api/airports/search?q=` | GET | JSON autocomplete endpoint |
-| `/about`, `/careers`, `/contact`, `/privacy-policy`, `/disclaimer`, `/refund-policy`, `/terms` | GET | Static pages |
-| `/contact` | POST | Form submission |
+### Stripe (payments)
+1. https://dashboard.stripe.com/test/apikeys — copy publishable + secret keys
+2. `STRIPE_SECRET_KEY=sk_test_xxx` / `STRIPE_PUBLISHABLE_KEY=pk_test_xxx`
+3. For webhooks, run `stripe listen --forward-to localhost:3000/webhooks/stripe` and paste the signing secret it prints into `STRIPE_WEBHOOK_SECRET`
+4. Test cards:
+   - `4242 4242 4242 4242` — instant success, no 3DS
+   - `4000 0025 0000 3155` — 3D Secure challenge required
+   - `4000 0000 0000 0002` — declined
+
+### ProxyCheck.io v3 (IP risk gate)
+1. Free tier (1,000 lookups/day) at https://proxycheck.io/dashboard
+2. `PROXYCHECK_API_KEY=xxx-xxx-xxx-xxx`
+3. The booking endpoint blocks: `proxy`, `vpn`, `tor`, `scraper`, `hosting`, `anonymous: true`, or `risk_score ≥ 76`
+4. Stricter than ProxyCheck's own suggested table — appropriate for a payment endpoint
+5. Without a key, the gate runs **permissive** (logs a warning, allows everything) — useful for local dev
+
+### MongoDB (order storage)
+- Local: `mongodb://localhost:27017/flightdojo`
+- Atlas: `mongodb+srv://user:pass@cluster.mongodb.net/flightdojo`
+- Order schema includes proxy_check, passengers, Stripe IDs, Duffel IDs, status timeline
+
+### SMTP (confirmation email)
+- **Dev**: sign up at https://mailtrap.io (free) → Inbox → SMTP Settings → copy creds. Mailtrap catches every email so you can preview without sending.
+- **Prod**: any SMTP works — SendGrid, Postmark, AWS SES, Resend, your own.
+- All emails are inline-styled, fully responsive, brand-matched.
+
+### Cloudflare Turnstile (bot protection on search)
+- Defaults to Cloudflare's "always pass" test keys
+- Production: get real keys at https://dash.cloudflare.com → Turnstile
+
+## ProxyCheck v3 risk policy
+
+The payment endpoint is stricter than ProxyCheck's default suggestion because we never want to charge a card from an anonymizing network:
+
+| Detection | Action |
+|-----------|--------|
+| `proxy: true` | **deny** |
+| `vpn: true` | **deny** |
+| `tor: true` | **deny** |
+| `scraper: true` | **deny** |
+| `hosting: true` (datacenter) | **deny** |
+| `anonymous: true` | **deny** |
+| `risk_score >= 76` | **deny** |
+| `risk_score 26–75` | challenge (currently denied at payment) |
+| everything else | allow |
+
+When denied, the user sees a clear "Payment temporarily blocked" panel naming the reason (VPN / proxy / datacenter etc) instead of a vague error. The check result is persisted on the Order document for auditing.
+
+The service **fails open** if ProxyCheck times out or errors — better to let a legitimate user pay than block every booking during an outage.
 
 ## Architecture
 
 ```
 flightdojo/
-├── app.js                       # Express server + routes
+├── app.js                       # Express server + routes + webhook
+├── models/
+│   └── Order.js                 # Mongoose schema with full booking audit
 ├── services/
-│   ├── duffel.js                # Duffel SDK wrapper, normalizer, cache, mock fallback
-│   └── airports.js              # Airport database + search/lookup helpers
+│   ├── duffel.js                # Search + offer + orders.create + cache
+│   ├── stripe.js                # PaymentIntent + webhook verification
+│   ├── proxycheck.js            # v3 IP risk gate with private-IP shortcut
+│   ├── mailer.js                # Branded HTML email + Nodemailer transport
+│   ├── turnstile.js             # Search form bot protection
+│   ├── airports.js              # Smart search w/ aliases & diacritics
+│   └── airports-data.js         # 366 curated airports
 ├── public/
-│   ├── css/main.css             # Full design system, light + dark
-│   └── js/main.js               # Theme, autocomplete, sort, swap, hamburger
+│   ├── css/main.css             # Full design system
+│   └── js/
+│       ├── main.js              # Theme, search, autocomplete, sort, Turnstile
+│       ├── booking.js           # Stripe Elements lifecycle + 3DS
+│       └── booking-status.js    # Post-payment status poller
 ├── views/
-│   ├── partials/                # Shared head, nav, footer, page-header
-│   ├── home.ejs
-│   ├── search-results.ejs       # Live offers list
-│   ├── offer-detail.ejs         # Single offer breakdown + summary sidebar
-│   ├── about.ejs, careers.ejs, contact.ejs
-│   ├── privacy-policy.ejs, disclaimer.ejs, refund-policy.ejs, terms.ejs
+│   ├── partials/                # head, navbar, footer, page-header
+│   ├── home.ejs · landing.ejs · search-results.ejs · offer-detail.ejs
+│   ├── booking-form.ejs         # Passenger form + embedded PaymentElement
+│   ├── booking-status.ejs       # Loading / success / failed states
+│   ├── about · careers · contact · privacy-policy · disclaimer · refund-policy · terms
 │   └── 404.ejs
 ├── .env.example
 └── package.json
 ```
 
-## Duffel flow used
+## Routes
 
-```
-1. User submits search form
-   └─→ GET /search?origin=DEL&destination=LHR&depart=2026-08-15&ret=2026-08-22
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/` | Home |
+| GET | `/landing` | Focused ads landing |
+| GET, POST | `/search` | Flight search (POST verifies Turnstile) |
+| GET | `/offer/:id` | Offer detail |
+| GET | `/book/:offerId` | Passenger form |
+| POST | `/api/book/intent` | ProxyCheck → Order → PaymentIntent |
+| GET | `/booking/:reference` | Status page (polls) |
+| GET | `/api/booking/:reference/status` | JSON status for poll |
+| POST | `/webhooks/stripe` | Stripe webhook → Duffel order → email |
+| GET | `/api/airports/search?q=` | Autocomplete |
 
-2. Server calls Duffel SDK:
-   duffel.offerRequests.create({
-     slices: [{ origin, destination, departure_date }, /* return */],
-     passengers: [{ type: 'adult' }, ...],
-     cabin_class: 'economy',
-     return_offers: true
-   })
+## Going to production
 
-3. Response is normalized — flatten slices, format durations,
-   extract carrier logos, sort by price, cap at 25
-
-4. Result cached 5 min by exact search params, then rendered
-```
-
-The offer detail page calls `duffel.offers.get(id)` to fetch the full structure
-in case any data is loaded lazily.
-
-## Moving to production
-
-When you're ready to take real bookings:
-
-1. Get a Duffel **live** token (after completing identity verification)
-2. Set `DUFFEL_ACCESS_TOKEN=duffel_live_xxxxx` in production env
-3. Implement the booking flow: `duffel.orders.create()` with passenger details + payment
-4. Add Stripe (or Duffel Payments) for collecting customer payments
-5. Set `NODE_ENV=production`
-
-The "Continue to Book" button currently shows a disclaimer — wire it up to a
-proper passenger collection form + checkout when ready.
+1. **Duffel**: complete identity verification → switch to `duffel_live_xxxxx` token
+2. **Stripe**: complete onboarding → switch to live keys, add live webhook endpoint
+3. **ProxyCheck**: upgrade past 1k/day if needed ($3.99 for 10k)
+4. **MongoDB**: use Atlas or a managed cluster, set strong auth
+5. **SMTP**: switch from Mailtrap to a sending provider (SendGrid / Postmark / SES)
+6. **Cloudflare Turnstile**: real keys, configure allowed hostnames
+7. **NODE_ENV=production**, set strong `STRIPE_WEBHOOK_SECRET`
+8. **HTTPS** mandatory — Stripe + ProxyCheck both require it for production keys
 
 ## Operator
 

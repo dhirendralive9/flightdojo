@@ -1,0 +1,250 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="results-header">
+  <div class="results-header-inner">
+    <a href="/offer/<%= offer.id %>" class="back-link">
+      <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
+      Back to offer
+    </a>
+    <div class="results-route">
+      <div class="rr-airport">
+        <div class="rr-iata"><%= offer.slices[0]?.origin %></div>
+        <div class="rr-name"><%= origin_info ? origin_info.city : offer.slices[0]?.origin %></div>
+      </div>
+      <div class="rr-arrow">
+        <% if (offer.slices.length > 1) { %>
+          <i data-lucide="arrow-left-right" style="width:22px;height:22px;"></i>
+        <% } else { %>
+          <i data-lucide="arrow-right" style="width:22px;height:22px;"></i>
+        <% } %>
+      </div>
+      <div class="rr-airport">
+        <div class="rr-iata"><%= offer.slices[0]?.destination %></div>
+        <div class="rr-name"><%= destination_info ? destination_info.city : offer.slices[0]?.destination %></div>
+      </div>
+    </div>
+    <div class="results-meta">
+      <span><i data-lucide="users" style="width:13px;height:13px;"></i> <%= offer.passenger_count %> passenger<%= offer.passenger_count > 1 ? 's' : '' %></span>
+      <span><i data-lucide="lock" style="width:13px;height:13px;"></i> Secure booking</span>
+    </div>
+  </div>
+</div>
+
+<div class="booking-section">
+  <div class="booking-grid">
+
+    <!-- LEFT: Form -->
+    <div class="booking-main">
+
+      <form id="bookingForm" class="booking-form">
+        <input type="hidden" name="offer_id" value="<%= offer.id %>"/>
+
+        <!-- Step 1: Passengers -->
+        <section class="bk-step" id="step1">
+          <div class="bk-step-header">
+            <div class="bk-step-num">1</div>
+            <div>
+              <h2 class="bk-step-title">Passenger details</h2>
+              <p class="bk-step-sub">Names must match passports / government ID exactly.</p>
+            </div>
+          </div>
+
+          <div id="passengersContainer">
+            <% for (let i = 0; i < offer.passenger_count; i++) { %>
+              <div class="bk-passenger" data-pax-idx="<%= i %>">
+                <div class="bk-pax-header">
+                  <i data-lucide="user" style="width:14px;height:14px;color:var(--coral);"></i>
+                  Passenger <%= i + 1 %> <span class="bk-pax-type">Adult</span>
+                </div>
+
+                <div class="bk-row">
+                  <div class="bk-field bk-field-small">
+                    <label class="bk-label">Title</label>
+                    <select name="passengers[<%= i %>][title]" class="bk-input" required>
+                      <option value="mr">Mr</option>
+                      <option value="mrs">Mrs</option>
+                      <option value="ms">Ms</option>
+                      <option value="miss">Miss</option>
+                      <option value="dr">Dr</option>
+                    </select>
+                  </div>
+                  <div class="bk-field">
+                    <label class="bk-label">Given (first) name</label>
+                    <input type="text" name="passengers[<%= i %>][given_name]" class="bk-input" required autocomplete="given-name"/>
+                  </div>
+                  <div class="bk-field">
+                    <label class="bk-label">Family (last) name</label>
+                    <input type="text" name="passengers[<%= i %>][family_name]" class="bk-input" required autocomplete="family-name"/>
+                  </div>
+                </div>
+
+                <div class="bk-row">
+                  <div class="bk-field">
+                    <label class="bk-label">Date of birth</label>
+                    <input type="date" name="passengers[<%= i %>][born_on]" class="bk-input" required max="<%= new Date().toISOString().slice(0,10) %>"/>
+                  </div>
+                  <div class="bk-field">
+                    <label class="bk-label">Gender</label>
+                    <select name="passengers[<%= i %>][gender]" class="bk-input" required>
+                      <option value="m">Male</option>
+                      <option value="f">Female</option>
+                    </select>
+                  </div>
+                  <input type="hidden" name="passengers[<%= i %>][type]" value="adult"/>
+                </div>
+              </div>
+            <% } %>
+          </div>
+        </section>
+
+        <!-- Step 2: Contact -->
+        <section class="bk-step" id="step2">
+          <div class="bk-step-header">
+            <div class="bk-step-num">2</div>
+            <div>
+              <h2 class="bk-step-title">Contact details</h2>
+              <p class="bk-step-sub">We'll send your booking confirmation here.</p>
+            </div>
+          </div>
+
+          <div class="bk-row">
+            <div class="bk-field">
+              <label class="bk-label">Email</label>
+              <input type="email" name="contact_email" id="contactEmail" class="bk-input" required autocomplete="email" placeholder="you@example.com"/>
+            </div>
+            <div class="bk-field">
+              <label class="bk-label">Phone (with country code)</label>
+              <input type="tel" name="contact_phone" id="contactPhone" class="bk-input" required autocomplete="tel" placeholder="+91 98765 43210"/>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 3: Payment -->
+        <section class="bk-step" id="step3">
+          <div class="bk-step-header">
+            <div class="bk-step-num">3</div>
+            <div>
+              <h2 class="bk-step-title">Payment</h2>
+              <p class="bk-step-sub">
+                <i data-lucide="lock" style="width:11px;height:11px;color:var(--coral);vertical-align:-1px;"></i>
+                Secure 3D-Secure payment via Stripe. Your card details never touch our servers.
+              </p>
+            </div>
+          </div>
+
+          <div id="paymentSection" class="bk-payment-locked">
+            <div class="bk-payment-locked-msg">
+              <i data-lucide="lock" style="width:14px;height:14px;"></i>
+              <span>Complete passenger and contact details above to enable payment.</span>
+            </div>
+          </div>
+
+          <div id="paymentElement" class="bk-stripe-element" style="display:none;"></div>
+          <div id="paymentMessage" class="bk-payment-message" style="display:none;"></div>
+
+          <button type="submit" id="payBtn" class="btn-coral bk-pay-btn" disabled>
+            <i data-lucide="lock" style="width:14px;height:14px;"></i>
+            <span id="payBtnLabel">Pay securely</span>
+            <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+          </button>
+
+          <div class="bk-trust-row">
+            <div class="bk-trust">
+              <i data-lucide="shield-check" style="width:13px;height:13px;"></i>
+              <span>PCI-DSS compliant via Stripe</span>
+            </div>
+            <div class="bk-trust">
+              <i data-lucide="check-circle-2" style="width:13px;height:13px;"></i>
+              <span>3D Secure protected</span>
+            </div>
+            <div class="bk-trust">
+              <i data-lucide="globe" style="width:13px;height:13px;"></i>
+              <span>IP risk verified</span>
+            </div>
+          </div>
+        </section>
+      </form>
+    </div>
+
+    <!-- RIGHT: Order summary -->
+    <aside class="booking-sidebar">
+      <div class="bk-summary">
+        <div class="bk-summary-header">
+          <% if (offer.carrier_logo) { %>
+            <img src="<%= offer.carrier_logo %>" alt="<%= offer.carrier %>" class="bk-carrier-logo"/>
+          <% } else { %>
+            <div class="bk-carrier-fallback"><%= offer.carrier_iata %></div>
+          <% } %>
+          <div>
+            <div class="bk-carrier-name"><%= offer.carrier %></div>
+            <div class="bk-carrier-pax"><%= offer.passenger_count %> passenger<%= offer.passenger_count > 1 ? 's' : '' %></div>
+          </div>
+        </div>
+
+        <% offer.slices.forEach((slice, idx) => { %>
+          <div class="bk-slice <%= idx > 0 ? 'bk-slice-return' : '' %>">
+            <div class="bk-slice-tag"><%= idx === 0 ? 'Outbound' : 'Return' %></div>
+            <div class="bk-slice-row">
+              <div>
+                <div class="bk-slice-time"><%= slice.departure_time %></div>
+                <div class="bk-slice-iata"><%= slice.origin %></div>
+              </div>
+              <div class="bk-slice-path">
+                <div class="bk-slice-duration"><%= slice.duration %></div>
+                <div class="bk-slice-line"></div>
+                <div class="bk-slice-stops"><%= slice.stops === 0 ? 'Direct' : `${slice.stops} stop${slice.stops > 1 ? 's' : ''}` %></div>
+              </div>
+              <div style="text-align:right;">
+                <div class="bk-slice-time"><%= slice.arrival_time %></div>
+                <div class="bk-slice-iata"><%= slice.destination %></div>
+              </div>
+            </div>
+            <div class="bk-slice-date">
+              <i data-lucide="calendar" style="width:11px;height:11px;"></i>
+              <%= slice.departure_date %>
+            </div>
+          </div>
+        <% }) %>
+
+        <div class="bk-price-block">
+          <div class="bk-price-line">
+            <span>Base fare</span>
+            <span><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.base_amount)) %></span>
+          </div>
+          <div class="bk-price-line">
+            <span>Taxes &amp; fees</span>
+            <span><%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.tax_amount)) %></span>
+          </div>
+          <div class="bk-price-divider"></div>
+          <div class="bk-price-total">
+            <span>Total</span>
+            <span class="bk-price-total-big">
+              <%= offer.total_currency === 'EUR' ? '€' : (offer.total_currency === 'USD' ? '$' : '£') %><%= Math.round(parseFloat(offer.total_amount)) %>
+            </span>
+          </div>
+        </div>
+
+        <div class="bk-expires">
+          <i data-lucide="clock" style="width:11px;height:11px;"></i>
+          Offer expires <%= new Date(offer.expires_at).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }) %>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+  window.FD_OFFER = {
+    id: '<%= offer.id %>',
+    total: '<%= offer.total_amount %>',
+    currency: '<%= offer.total_currency %>',
+    passenger_count: <%= offer.passenger_count %>
+  };
+  window.FD_STRIPE_PK = '<%= stripePublishableKey %>';
+</script>
+<script src="/js/booking.js"></script>
+
+<%- include('partials/footer') %>

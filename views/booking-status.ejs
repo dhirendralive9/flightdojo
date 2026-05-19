@@ -1,0 +1,94 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="booking-status-section">
+  <div class="bks-card">
+
+    <div id="bksLoading" class="bks-state" style="<%= order && order.status === 'booked' ? 'display:none;' : '' %>">
+      <div class="bks-icon bks-icon-loading">
+        <i data-lucide="loader" style="width:36px;height:36px;"></i>
+      </div>
+      <h1 class="bks-title">Finalising your booking…</h1>
+      <p class="bks-sub">
+        Payment received. We're now confirming with the airline and issuing your ticket.
+        This usually takes 10–30 seconds. <strong>Don't close this page.</strong>
+      </p>
+      <div class="bks-progress"><div class="bks-progress-bar"></div></div>
+      <div class="bks-ref-line">
+        Order ID <code><%= reference %></code>
+      </div>
+    </div>
+
+    <div id="bksSuccess" class="bks-state" style="<%= order && order.status === 'booked' ? '' : 'display:none;' %>">
+      <div class="bks-icon bks-icon-success">
+        <i data-lucide="check" style="width:42px;height:42px;"></i>
+      </div>
+      <div class="bks-eyebrow">Confirmed</div>
+      <h1 class="bks-title">Your trip is booked.</h1>
+      <p class="bks-sub">
+        A confirmation email is on its way to <strong><%= order ? order.contact_email : '' %></strong>.
+        Save your booking reference — you'll need it at check-in.
+      </p>
+
+      <% if (order) { %>
+        <div class="bks-pnr">
+          <div class="bks-pnr-label">Booking Reference</div>
+          <div class="bks-pnr-code"><%= order.booking_reference || order.reference %></div>
+        </div>
+
+        <div class="bks-trip-summary">
+          <% (order.slices || []).forEach((slice, idx) => { %>
+            <div class="bks-trip-row">
+              <div class="bks-trip-tag"><%= idx === 0 ? 'Outbound' : 'Return' %></div>
+              <div class="bks-trip-route">
+                <strong><%= slice.origin %></strong>
+                <i data-lucide="arrow-right" style="width:13px;height:13px;color:var(--coral);vertical-align:-2px;"></i>
+                <strong><%= slice.destination %></strong>
+                <span class="bks-trip-date">· <%= slice.departure_date %></span>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+
+        <div class="bks-actions">
+          <a href="/" class="btn-coral" style="padding:12px 22px;">
+            <i data-lucide="search" style="width:14px;height:14px;"></i>
+            Book another trip
+          </a>
+          <a href="/contact" class="btn-ghost-hero" style="padding:12px 22px;">
+            <i data-lucide="headphones" style="width:13px;height:13px;"></i>
+            Get support
+          </a>
+        </div>
+      <% } %>
+    </div>
+
+    <div id="bksFailed" class="bks-state" style="display:none;">
+      <div class="bks-icon bks-icon-failed">
+        <i data-lucide="x" style="width:36px;height:36px;"></i>
+      </div>
+      <h1 class="bks-title">We hit a snag</h1>
+      <p class="bks-sub" id="bksFailMsg">
+        Your payment went through but we couldn't issue the ticket. Don't worry — you have not been charged twice. Our team will reach out within 1 business hour.
+      </p>
+      <div class="bks-ref-line">
+        Order ID <code><%= reference %></code>
+      </div>
+      <div class="bks-actions">
+        <a href="/contact" class="btn-coral" style="padding:12px 22px;">
+          <i data-lucide="headphones" style="width:13px;height:13px;"></i>
+          Contact support
+        </a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  window.FD_BOOKING_REFERENCE = '<%= reference %>';
+  window.FD_INITIAL_STATUS = '<%= order ? order.status : "pending" %>';
+</script>
+<script src="/js/booking-status.js"></script>
+
+<%- include('partials/footer') %>

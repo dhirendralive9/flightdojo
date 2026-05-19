@@ -1,0 +1,109 @@
+const mongoose = require('mongoose');
+
+const passengerSchema = new mongoose.Schema({
+  type: { type: String, default: 'adult' },
+  title: String,
+  given_name: String,
+  family_name: String,
+  born_on: String,
+  email: String,
+  phone_number: String,
+  gender: String
+}, { _id: false });
+
+const segmentSchema = new mongoose.Schema({
+  origin: String,
+  destination: String,
+  carrier: String,
+  carrier_iata: String,
+  flight_number: String,
+  departing_at: String,
+  arriving_at: String,
+  aircraft: String
+}, { _id: false });
+
+const sliceSchema = new mongoose.Schema({
+  origin: String,
+  origin_name: String,
+  destination: String,
+  destination_name: String,
+  duration: String,
+  departure_date: String,
+  stops: Number,
+  segments: [segmentSchema]
+}, { _id: false });
+
+const proxyCheckSchema = new mongoose.Schema({
+  ip: String,
+  risk_score: Number,
+  confidence: Number,
+  anonymous: Boolean,
+  proxy: Boolean,
+  vpn: Boolean,
+  tor: Boolean,
+  hosting: Boolean,
+  scraper: Boolean,
+  network_type: String,
+  asn: String,
+  isp: String,
+  organisation: String,
+  hostname: String,
+  country: String,
+  region: String,
+  city: String,
+  operator_name: String,
+  operator_services: [String],
+  recommendation: String,
+  raw: mongoose.Schema.Types.Mixed,
+  checked_at: { type: Date, default: Date.now }
+}, { _id: false });
+
+const orderSchema = new mongoose.Schema({
+  reference: { type: String, unique: true, index: true },
+  status: {
+    type: String,
+    enum: ['pending', 'risk_blocked', 'awaiting_payment', 'paid', 'booked', 'failed', 'cancelled'],
+    default: 'pending',
+    index: true
+  },
+
+  // Duffel
+  duffel_offer_id: { type: String, index: true },
+  duffel_order_id: { type: String, sparse: true, index: true },
+  booking_reference: String,
+
+  // Stripe
+  stripe_payment_intent_id: { type: String, sparse: true, index: true },
+  stripe_payment_status: String,
+  stripe_amount: Number,
+  stripe_currency: String,
+  stripe_payment_method: String,
+
+  // Pricing
+  total_amount: String,
+  total_currency: String,
+  base_amount: String,
+  tax_amount: String,
+
+  // Trip snapshot
+  carrier: String,
+  carrier_iata: String,
+  passenger_count: Number,
+  slices: [sliceSchema],
+
+  // Passengers
+  passengers: [passengerSchema],
+  contact_email: { type: String, index: true },
+  contact_phone: String,
+
+  // Security check
+  proxy_check: proxyCheckSchema,
+
+  // Booking artifacts
+  email_sent_at: Date,
+  failure_reason: String
+}, { timestamps: true });
+
+orderSchema.index({ createdAt: -1 });
+
+module.exports = mongoose.model('Order', orderSchema);
