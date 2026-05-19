@@ -128,49 +128,64 @@ function generateReference() {
 
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 
-// Validate + normalize a phone number to strict E.164 using libphonenumber-js.
-// Returns { ok: true, e164, country } on success, or { ok: false, error } with
-// a user-facing message on failure. Catches all the cases regex misses:
-// fake area codes, non-existent country codes, wrong length per country, etc.
+// Validate + normalize a phone number to E.164 for Duffel.
+//
+// Policy: be permissive about which country's numbering plan we accept.
+// We don't want to reject legitimate customers because our library's numbering
+// data is stale or doesn't recognize a regional carrier. The rules are:
+//   1. Must start with + (or 00 prefix, which we convert)
+//   2. Must be 7-15 digits after the +
+//   3. If libphonenumber-js can parse it, use its E.164 output
+//   4. Otherwise fall back to a clean E.164 string (digits only after +)
+//
+// Duffel itself validates more strictly. If our submission fails there, the
+// webhook handler logs it and the user can correct it.
 function normalizePhone(raw) {
   if (!raw) return { ok: false, error: 'Phone number is required.' };
 
-  const trimmed = String(raw).trim();
+  let trimmed = String(raw).trim();
   if (trimmed.length < 5) {
     return { ok: false, error: 'Phone number is too short.' };
   }
 
-  // Insist on a country code — without a + (or international prefix) we can't
-  // know which country, and the resulting E.164 will be wrong.
-  if (!trimmed.startsWith('+') && !trimmed.startsWith('00')) {
+  // Accept "00" international prefix as equivalent to "+"
+  if (trimmed.startsWith('00')) {
+    trimmed = '+' + trimmed.slice(2);
+  }
+
+  if (!trimmed.startsWith('+')) {
     return {
       ok: false,
       error: 'Please include your country code (e.g. +1 for US, +44 for UK, +91 for India).'
     };
   }
 
-  let parsed;
+  // Structural check on digits — E.164 allows 7-15 digits after the +
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length < 7) {
+    return { ok: false, error: 'Phone number is too short — must include country code and the full number.' };
+  }
+  if (digitsOnly.length > 15) {
+    return { ok: false, error: 'Phone number is too long — should be at most 15 digits total.' };
+  }
+
+  // Try libphonenumber-js for canonical formatting + country detection.
+  // We use isPossible() (length-based) not isValid() (full numbering-plan check),
+  // because plan databases lag behind real carrier allocations and we don't want
+  // to block real users.
+  let country = null;
+  let canonical = '+' + digitsOnly;
   try {
-    parsed = parsePhoneNumberFromString(trimmed);
-  } catch (err) {
-    return { ok: false, error: 'Could not parse phone number. Please check the format.' };
-  }
+    const parsed = parsePhoneNumberFromString(trimmed);
+    if (parsed) {
+      country = parsed.country || null;
+      if (parsed.isPossible()) {
+        canonical = parsed.number; // already E.164
+      }
+    }
+  } catch (e) { /* fall through to canonical */ }
 
-  if (!parsed) {
-    return { ok: false, error: 'Could not parse phone number. Please check the format.' };
-  }
-  if (!parsed.isValid()) {
-    return {
-      ok: false,
-      error: `This doesn't look like a valid phone number for ${parsed.country || 'that country code'}. Please double-check.`
-    };
-  }
-
-  return {
-    ok: true,
-    e164: parsed.number,         // already in E.164 format: "+15551234567"
-    country: parsed.country      // ISO code: "US", "GB", "IN" etc.
-  };
+  return { ok: true, e164: canonical, country };
 }
 
 // ─── PUBLIC PAGES ────────────────────────────────────────
@@ -526,6 +541,7 @@ async function handleStripeWebhook(req, res) {
       order.stripe_payment_status = pi.status;
       order.stripe_payment_method = pi.payment_method_types?.[0] || null;
       await order.save();
+      console.log(`💳 Payment confirmed for ${reference} — attempting Duffel order…`);
 
       // Create Duffel order
       try {
@@ -548,9 +564,17 @@ async function handleStripeWebhook(req, res) {
         await order.save();
       }
 
-      // Send confirmation
+      // Send the appropriate email based on outcome
       if (order.status === 'booked') {
         const sent = await mailer.sendBookingConfirmation(order.toObject());
+        if (sent) {
+          order.email_sent_at = new Date();
+          await order.save();
+        }
+      } else if (order.status === 'failed') {
+        // Customer was charged but no PNR. Send a "we have your payment, we're
+        // working on it" email so they're not left in the dark.
+        const sent = await mailer.sendBookingPending(order.toObject(), order.failure_reason);
         if (sent) {
           order.email_sent_at = new Date();
           await order.save();

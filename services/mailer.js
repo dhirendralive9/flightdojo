@@ -239,11 +239,12 @@ async function sendBookingConfirmation(order) {
   const html = bookingConfirmation(order);
   const to = order.contact_email;
   if (!to) {
-    console.warn('No contact_email on order', order.reference);
+    console.warn('📬 No contact_email on order', order.reference, '— cannot send confirmation');
     return false;
   }
 
   const subject = `Booking Confirmed · ${order.booking_reference || order.reference}`;
+  console.log(`📬 Sending confirmation email → ${to} (order ${order.reference})`);
 
   if (!transporter) {
     console.log('───── EMAIL (SMTP not configured, would have sent) ─────');
@@ -259,12 +260,102 @@ async function sendBookingConfirmation(order) {
       from, to, subject, html,
       text: `Your FlightDojo booking is confirmed.\n\nReference: ${order.booking_reference || order.reference}\nTotal: ${order.total_currency} ${order.total_amount}\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/booking/${order.reference}\n\n— FlightDojo`
     });
-    console.log('📬 Email sent:', info.messageId, '→', to);
+    console.log('📬 ✓ Confirmation sent:', info.messageId, '→', to);
     return true;
   } catch (err) {
-    console.error('Email send failed:', err.message);
+    console.error('📬 ✗ Confirmation send failed:', err.message, 'to:', to);
     return false;
   }
 }
 
-module.exports = { sendBookingConfirmation };
+// Sent when payment goes through but Duffel rejects the order (so no PNR).
+// Customer has been charged — they need to know we're handling it.
+function bookingPendingEmail(order, failureReason) {
+  const CORAL = '#FF5038';
+  const TEXT = '#1a1a1a';
+  const MUTED = '#6b6b6b';
+
+  const currency = order.total_currency === 'EUR' ? '€' :
+    order.total_currency === 'USD' ? '$' :
+    order.total_currency === 'GBP' ? '£' : order.total_currency + ' ';
+  const total = Math.round(parseFloat(order.total_amount || 0));
+
+  const content = `
+    <tr><td style="padding:32px;">
+      <div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:${CORAL};font-weight:700;margin-bottom:8px;">
+        Payment Received · Booking In Progress
+      </div>
+      <h1 style="margin:0 0 18px 0;font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:800;color:${TEXT};line-height:1.15;">
+        We have your payment.
+      </h1>
+      <p style="margin:0 0 20px 0;font-size:14px;color:${MUTED};line-height:1.7;">
+        Thank you${order.passengers?.[0]?.given_name ? ', ' + escapeHtml(order.passengers[0].given_name) : ''}. We received your payment of <strong style="color:${TEXT};">${currency}${total}</strong> successfully, but couldn't finalise the airline booking on the first attempt.
+      </p>
+      <p style="margin:0 0 20px 0;font-size:14px;color:${MUTED};line-height:1.7;">
+        <strong style="color:${TEXT};">What happens next:</strong> Our team has been notified and will manually issue your ticket within <strong style="color:${TEXT};">one business hour</strong>. You'll get a separate confirmation email with your PNR as soon as it's done.
+      </p>
+      <p style="margin:0 0 24px 0;font-size:13px;color:${MUTED};line-height:1.7;">
+        <strong style="color:${TEXT};">You have not been charged twice.</strong> No action is needed from you. If you don't hear from us within an hour, please reply to this email or contact support with your order ID below.
+      </p>
+
+      <div style="background:#fdf3f1;border-left:3px solid ${CORAL};padding:14px 18px;margin-bottom:20px;">
+        <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${MUTED};font-weight:700;margin-bottom:6px;">
+          Order Reference
+        </div>
+        <div style="font-family:Georgia,serif;font-size:22px;font-weight:800;color:${TEXT};letter-spacing:0.08em;">
+          ${escapeHtml(order.reference)}
+        </div>
+      </div>
+
+      <div style="text-align:center;margin:20px 0 8px;">
+        <a href="${escapeHtml(process.env.BASE_URL || 'https://flightdojo.it.com')}/contact"
+           style="display:inline-block;background:${CORAL};color:#fff;text-decoration:none;font-family:Georgia,serif;font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;padding:13px 26px;border-radius:4px;">
+          Contact Support →
+        </a>
+      </div>
+    </td></tr>
+  `;
+
+  const footer = `
+    <strong style="color:${TEXT};">Reply to this email</strong> if you have any urgent questions about your trip.<br/>
+    Order ID ${escapeHtml(order.reference)} · Issued ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.
+  `;
+
+  return brandedEmail({
+    subject: `Payment received — booking in progress · ${order.reference}`,
+    preheader: `We received your ${currency}${total} payment for order ${order.reference}. Our team is finalising your booking.`,
+    contentBlocks: content,
+    footerText: footer
+  });
+}
+
+async function sendBookingPending(order, failureReason) {
+  const to = order.contact_email;
+  if (!to) {
+    console.warn('📬 No contact_email on order', order.reference, '— cannot send pending notice');
+    return false;
+  }
+  console.log(`📬 Sending payment-received notice → ${to} (order ${order.reference})`);
+
+  const html = bookingPendingEmail(order, failureReason);
+  const subject = `Payment received — booking in progress · ${order.reference}`;
+
+  if (!transporter) {
+    console.log('───── EMAIL (SMTP not configured) — pending notice for', order.reference);
+    return false;
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from, to, subject, html,
+      text: `Hi${order.passengers?.[0]?.given_name ? ' ' + order.passengers[0].given_name : ''},\n\nWe received your payment for order ${order.reference} but couldn't finalise the airline booking automatically. Our team will issue your ticket manually within one business hour.\n\nYou have not been charged twice. If you don't hear from us, reply to this email.\n\n— FlightDojo`
+    });
+    console.log('📬 ✓ Pending notice sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Pending notice send failed:', err.message);
+    return false;
+  }
+}
+
+module.exports = { sendBookingConfirmation, sendBookingPending };
