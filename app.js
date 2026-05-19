@@ -27,7 +27,35 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.set('trust proxy', true);
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Static assets: cache long (1 year) — we cache-bust via ?v=<timestamp>
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1y',
+  etag: true,
+  lastModified: true
+}));
+
+// HTML pages: never cache. The version query string in linked assets must always
+// reach the user, so the wrapping HTML cannot be cached by Cloudflare or the browser.
+app.use((req, res, next) => {
+  const isApi = req.path.startsWith('/api/') || req.path.startsWith('/webhooks/');
+  if (!isApi) {
+    // Set headers immediately AND wrap res.render so they persist through rendering
+    const setNoCache = () => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('CDN-Cache-Control', 'no-store');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+    };
+    setNoCache();
+    const origRender = res.render.bind(res);
+    res.render = function(...args) {
+      setNoCache();
+      return origRender(...args);
+    };
+  }
+  next();
+});
 
 // ─── Stripe webhook MUST be raw before JSON parser ─────────
 app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
@@ -60,6 +88,9 @@ const footerLinks = {
   ]
 };
 
+// Generated at boot — invalidates cached static assets when the server restarts
+const ASSET_VERSION = String(Date.now());
+
 app.use((req, res, next) => {
   res.locals.navLinks = navLinks;
   res.locals.footerLinks = footerLinks;
@@ -68,6 +99,7 @@ app.use((req, res, next) => {
   res.locals.turnstileSitekey = turnstile.sitekey;
   res.locals.turnstileTestMode = turnstile.isTestMode;
   res.locals.stripePublishableKey = stripeService.publishableKey;
+  res.locals.assetVersion = ASSET_VERSION;
   next();
 });
 

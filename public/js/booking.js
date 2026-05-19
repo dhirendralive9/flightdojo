@@ -1,4 +1,7 @@
 (function() {
+  // Set window.FD_DEBUG = true in DevTools console to see DOB sync reports
+  console.log('[FlightDojo booking.js] loaded — build', document.querySelector('script[src*="booking.js"]')?.src.match(/v=(\d+)/)?.[1] || 'unknown');
+
   let stripe = null;
   let elements = null;
   let paymentElement = null;
@@ -34,7 +37,9 @@
 
   // Globally recompute every passenger's DOB hidden from current segment values.
   // Called defensively right before submitting to the server.
+  // Returns an array of { idx, ok, iso, error } so callers can act on failures.
   function syncAllDobHidden() {
+    const report = [];
     document.querySelectorAll('[data-dob-segments]').forEach(group => {
       const idx = group.dataset.dobSegments;
       const mm = document.querySelector(`[data-dob-mm="${idx}"]`);
@@ -42,19 +47,26 @@
       const yy = document.querySelector(`[data-dob-yyyy="${idx}"]`);
       const hidden = document.querySelector(`[data-dob-hidden="${idx}"]`);
       const native = document.querySelector(`[data-dob-native="${idx}"]`);
-      if (!hidden) return;
+
+      if (!hidden) {
+        report.push({ idx, ok: false, error: 'hidden_field_missing' });
+        return;
+      }
 
       // If native picker is currently visible and has a value, prefer it
       if (native && native.style.display !== 'none' && native.value) {
         if (/^\d{4}-\d{2}-\d{2}$/.test(native.value)) {
           hidden.value = native.value;
+          report.push({ idx, ok: true, iso: native.value, source: 'native' });
           return;
         }
       }
 
-      // Otherwise compute from segments
-      if (!mm || !dd || !yy) return;
-      // Pad single-digit month/day in case user didn't blur
+      // Compute from segments
+      if (!mm || !dd || !yy) {
+        report.push({ idx, ok: false, error: 'segment_inputs_missing' });
+        return;
+      }
       let mmV = (mm.value || '').replace(/\D/g, '');
       let ddV = (dd.value || '').replace(/\D/g, '');
       let yyV = (yy.value || '').replace(/\D/g, '');
@@ -65,14 +77,18 @@
         const result = validateDob(mmV, ddV, yyV);
         if (!result.error) {
           hidden.value = result.iso;
-          // also update visible segments in case we padded
           mm.value = mmV; dd.value = ddV; yy.value = yyV;
+          report.push({ idx, ok: true, iso: result.iso, source: 'segments' });
           return;
         }
+        report.push({ idx, ok: false, error: result.error, mm: mmV, dd: ddV, yyyy: yyV });
+      } else {
+        report.push({ idx, ok: false, error: 'incomplete', mm: mmV, dd: ddV, yyyy: yyV });
       }
-      // If we couldn't construct a valid date, leave hidden blank
       hidden.value = '';
     });
+    if (window.FD_DEBUG) console.log('[DOB sync]', report);
+    return report;
   }
 
   // ─── DOB entry: 3-segment MM/DD/YYYY with native-calendar fallback ───

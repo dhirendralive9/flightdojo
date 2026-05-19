@@ -89,6 +89,6 @@
   window.FD_BOOKING_REFERENCE = '<%= reference %>';
   window.FD_INITIAL_STATUS = '<%= order ? order.status : "pending" %>';
 </script>
-<script src="/js/booking-status.js"></script>
+<script src="/js/booking-status.js?v=<%= typeof assetVersion !== "undefined" ? assetVersion : "1" %>"></script>
 
 <%- include('partials/footer') %>
