@@ -32,6 +32,49 @@
     });
   }
 
+  // Globally recompute every passenger's DOB hidden from current segment values.
+  // Called defensively right before submitting to the server.
+  function syncAllDobHidden() {
+    document.querySelectorAll('[data-dob-segments]').forEach(group => {
+      const idx = group.dataset.dobSegments;
+      const mm = document.querySelector(`[data-dob-mm="${idx}"]`);
+      const dd = document.querySelector(`[data-dob-dd="${idx}"]`);
+      const yy = document.querySelector(`[data-dob-yyyy="${idx}"]`);
+      const hidden = document.querySelector(`[data-dob-hidden="${idx}"]`);
+      const native = document.querySelector(`[data-dob-native="${idx}"]`);
+      if (!hidden) return;
+
+      // If native picker is currently visible and has a value, prefer it
+      if (native && native.style.display !== 'none' && native.value) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(native.value)) {
+          hidden.value = native.value;
+          return;
+        }
+      }
+
+      // Otherwise compute from segments
+      if (!mm || !dd || !yy) return;
+      // Pad single-digit month/day in case user didn't blur
+      let mmV = (mm.value || '').replace(/\D/g, '');
+      let ddV = (dd.value || '').replace(/\D/g, '');
+      let yyV = (yy.value || '').replace(/\D/g, '');
+      if (mmV.length === 1) mmV = '0' + mmV;
+      if (ddV.length === 1) ddV = '0' + ddV;
+
+      if (mmV.length === 2 && ddV.length === 2 && yyV.length === 4) {
+        const result = validateDob(mmV, ddV, yyV);
+        if (!result.error) {
+          hidden.value = result.iso;
+          // also update visible segments in case we padded
+          mm.value = mmV; dd.value = ddV; yy.value = yyV;
+          return;
+        }
+      }
+      // If we couldn't construct a valid date, leave hidden blank
+      hidden.value = '';
+    });
+  }
+
   // ─── DOB entry: 3-segment MM/DD/YYYY with native-calendar fallback ───
   function setupDobInputs() {
     document.querySelectorAll('[data-dob-segments]').forEach(group => {
@@ -189,12 +232,14 @@
   }
 
   function passengerFieldsValid() {
+    // Sync DOB hidden fields first so we check current state
+    syncAllDobHidden();
+
     const required = document.querySelectorAll('#step1 input[required]:not(.bk-dob-seg):not(.bk-dob-native), #step1 select[required], #step2 input[required]');
     for (const f of required) {
       if (!f.value || !f.value.trim()) return false;
       if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.value)) return false;
     }
-    // every hidden DOB field must be populated (means MM/DD/YYYY was valid)
     const hiddenDobs = document.querySelectorAll('[data-dob-hidden]');
     if (hiddenDobs.length === 0) return false;
     for (const h of hiddenDobs) {
@@ -214,6 +259,10 @@
     if (intentRequested) return;
     intentRequested = true;
 
+    // Defensive: sync every DOB hidden field from its segments before reading FormData.
+    // This catches any race condition where the segment input handler hasn't yet written.
+    syncAllDobHidden();
+
     const form = document.getElementById('bookingForm');
     const formData = new FormData(form);
     const passengers = [];
@@ -228,6 +277,20 @@
         born_on: formData.get(`passengers[${i}][born_on]`),
         gender: formData.get(`passengers[${i}][gender]`)
       });
+    }
+
+    // Last-resort guard: if any born_on is still empty after sync, abort cleanly
+    for (let i = 0; i < passengers.length; i++) {
+      if (!passengers[i].born_on) {
+        intentRequested = false;
+        showMessage(`Please complete the date of birth for passenger ${i + 1}.`, 'error');
+        const pax = document.querySelector(`[data-pax-idx="${i}"]`);
+        pax?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        pax?.classList.add('bk-pax-flash');
+        setTimeout(() => pax?.classList.remove('bk-pax-flash'), 1600);
+        lockPayment();
+        return;
+      }
     }
 
     const body = {

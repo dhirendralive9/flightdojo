@@ -3102,3 +3102,75 @@ footer.site-footer {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
   20%, 60% { box-shadow: 0 0 0 3px rgba(255,80,56,0.25); }
 }
+
+/* ═══ DOB ROW LAYOUT FIX ═══ */
+/* DOB row is 2-column (DOB | Gender) not 3 */
+.bk-row.bk-row-dob {
+  grid-template-columns: 1.4fr 1fr;
+}
+
+/* Override generic .bk-row collapse on mobile too */
+@media (max-width: 540px) {
+  .bk-row.bk-row-dob { grid-template-columns: 1fr; }
+}
+
+/* Force segments to lay out horizontally and not stack */
+.bk-dob-segments {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  min-height: 42px;
+}
+.bk-dob-segments:focus-within {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(255,80,56,0.10);
+}
+
+/* Reset all inherited input styling on segments */
+.bk-dob-seg {
+  flex: 0 0 auto !important;
+  display: inline-block !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  padding: 4px 2px !important;
+  margin: 0 !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+  text-align: center !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  min-height: 0 !important;
+  line-height: 1.2 !important;
+}
+.bk-dob-mm, .bk-dob-dd { width: 30px !important; }
+.bk-dob-yyyy { width: 52px !important; }
+
+.bk-dob-seg::placeholder {
+  color: var(--text-dim);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  opacity: 1;
+}
+.bk-dob-seg::-webkit-outer-spin-button,
+.bk-dob-seg::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.bk-dob-sep {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 16px;
+  user-select: none;
+  pointer-events: none;
+  flex-shrink: 0;
+}

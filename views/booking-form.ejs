@@ -79,10 +79,10 @@
                   </div>
                 </div>
 
-                <div class="bk-row">
+                <div class="bk-row bk-row-dob">
                   <div class="bk-field bk-field-dob">
                     <label class="bk-label">
-                      Date of birth
+                      <span>Date of birth</span>
                       <button type="button" class="bk-dob-toggle" data-dob-toggle="<%= i %>" tabindex="-1">
                         <i data-lucide="calendar" style="width:11px;height:11px;"></i>
                         Use calendar
@@ -92,7 +92,7 @@
                     <div class="bk-dob-segments" data-dob-segments="<%= i %>">
                       <input
                         type="text"
-                        class="bk-input bk-dob-seg bk-dob-mm"
+                        class="bk-dob-seg bk-dob-mm"
                         data-dob-mm="<%= i %>"
                         placeholder="MM"
                         maxlength="2"
@@ -104,7 +104,7 @@
                       <span class="bk-dob-sep">/</span>
                       <input
                         type="text"
-                        class="bk-input bk-dob-seg bk-dob-dd"
+                        class="bk-dob-seg bk-dob-dd"
                         data-dob-dd="<%= i %>"
                         placeholder="DD"
                         maxlength="2"
@@ -116,7 +116,7 @@
                       <span class="bk-dob-sep">/</span>
                       <input
                         type="text"
-                        class="bk-input bk-dob-seg bk-dob-yyyy"
+                        class="bk-dob-seg bk-dob-yyyy"
                         data-dob-yyyy="<%= i %>"
                         placeholder="YYYY"
                         maxlength="4"
@@ -146,8 +146,8 @@
                       <option value="f">Female</option>
                     </select>
                   </div>
-                  <input type="hidden" name="passengers[<%= i %>][type]" value="adult"/>
                 </div>
+                <input type="hidden" name="passengers[<%= i %>][type]" value="adult"/>
               </div>
             <% } %>
           </div>
