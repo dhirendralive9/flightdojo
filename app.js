@@ -126,6 +126,18 @@ function generateReference() {
   return `FD-${s}`;
 }
 
+// Normalize a user-entered phone number to E.164 ("+12025550150").
+// Returns empty string if input clearly isn't a valid phone.
+// Duffel requires strict E.164: leading + and 7-15 digits with no spaces.
+function normalizePhone(raw) {
+  if (!raw) return '';
+  const trimmed = String(raw).trim();
+  const hasPlus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return '';
+  return (hasPlus ? '+' : (digits.length >= 10 ? '+' : '')) + digits;
+}
+
 // ─── PUBLIC PAGES ────────────────────────────────────────
 app.get('/', (req, res) => {
   const dates = defaultDates();
@@ -298,6 +310,19 @@ app.post('/api/book/intent', async (req, res) => {
       });
     }
 
+    // Phone number — Duffel requires E.164 (+CountryCodeDigits with no spaces).
+    // We accept user-entered "+1 555 123 4567" or "(555) 123-4567" and normalize.
+    const phoneNormalized = normalizePhone(contact_phone || '');
+    if (!phoneNormalized) {
+      return res.status(400).json({
+        error: 'invalid_phone',
+        message: 'Please provide a valid phone number with country code (e.g. +1 555 123 4567).'
+      });
+    }
+    // Use the normalized phone everywhere downstream — including the Order doc
+    // we save to MongoDB, so the webhook handler picks up the cleaned version.
+    const normalizedContactPhone = phoneNormalized;
+
     // ───── SECURITY: ProxyCheck IP gate ─────
     const ip = proxycheck.clientIp(req);
     const proxyResult = await proxycheck.check(ip, 'flightdojo_booking');
@@ -310,7 +335,7 @@ app.post('/api/book/intent', async (req, res) => {
           status: 'risk_blocked',
           duffel_offer_id: offer_id,
           contact_email,
-          contact_phone,
+          contact_phone: normalizedContactPhone,
           passengers,
           proxy_check: proxyResult,
           failure_reason: `IP risk gate: ${proxyResult.proxy ? 'proxy' : proxyResult.vpn ? 'vpn' : proxyResult.tor ? 'tor' : proxyResult.hosting ? 'datacenter' : proxyResult.scraper ? 'scraper' : 'high-risk'} (score ${proxyResult.risk_score})`
@@ -359,7 +384,7 @@ app.post('/api/book/intent', async (req, res) => {
         slices: offer.slices,
         passengers,
         contact_email,
-        contact_phone,
+        contact_phone: normalizedContactPhone,
         proxy_check: proxyResult
       });
     } catch (err) {

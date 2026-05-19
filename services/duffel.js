@@ -100,7 +100,11 @@ function normalizeOffer(offer) {
     carrier_iata: primaryCarrier?.iata_code,
     carrier_logo: primaryCarrier?.logo_symbol_url,
     slices,
-    passenger_count: (offer.passengers || []).length
+    passenger_count: (offer.passengers || []).length,
+    // Critical for orders.create: each passenger we book must reference one of
+    // these Duffel-generated IDs. They are scoped to this offer.
+    passenger_ids: (offer.passengers || []).map(p => p.id),
+    passenger_types: (offer.passengers || []).map(p => p.type || 'adult')
   };
 }
 
@@ -168,7 +172,6 @@ async function getOffer(offerId) {
 
 async function createOrder({ offerId, passengers, contact, amount, currency }) {
   if (!duffel) {
-    // Mock booking — generate fake PNR + Duffel-style order ID
     const pnr = Math.random().toString(36).slice(2, 8).toUpperCase();
     return {
       id: 'ord_mock_' + Math.random().toString(36).slice(2, 12),
@@ -177,24 +180,41 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
     };
   }
 
-  // Real Duffel order creation. Note: in test mode, payments[].type='balance'
-  // uses Duffel's test balance — no real money. In production you'd use Duffel
-  // Payments or remit per booking from your card balance.
+  // Re-fetch the offer to get the current Duffel-generated passenger IDs.
+  // Offer expires_at means we can't rely on stored IDs being valid; re-fetch
+  // also ensures we have whatever IDs Duffel expects right now.
+  const offerResponse = await duffel.offers.get(offerId, { return_available_services: false });
+  const offerData = offerResponse.data;
+  const duffelPassengers = offerData.passengers || [];
+
+  if (duffelPassengers.length !== passengers.length) {
+    throw new Error(`Passenger count mismatch: offer expects ${duffelPassengers.length}, got ${passengers.length}`);
+  }
+
+  // Build passenger payload — each one references its Duffel ID.
+  // Phone MUST be in E.164 format (only + and digits, no spaces or dashes).
+  const orderPassengers = passengers.map((p, idx) => {
+    const duffelP = duffelPassengers[idx];
+    const phoneRaw = p.phone_number || contact.phone || '';
+    const phoneE164 = normalizePhoneE164(phoneRaw);
+    return {
+      id: duffelP.id,                    // ← required, from the offer
+      type: duffelP.type || p.type || 'adult',
+      title: p.title,
+      gender: p.gender,
+      given_name: p.given_name,
+      family_name: p.family_name,
+      born_on: p.born_on,
+      email: p.email || contact.email,
+      phone_number: phoneE164
+    };
+  });
+
   try {
     const orderResponse = await duffel.orders.create({
       type: 'instant',
       selected_offers: [offerId],
-      passengers: passengers.map((p, idx) => ({
-        id: p.id || `pas_${idx}`,
-        type: p.type || 'adult',
-        title: p.title,
-        gender: p.gender,
-        given_name: p.given_name,
-        family_name: p.family_name,
-        born_on: p.born_on,
-        email: p.email || contact.email,
-        phone_number: p.phone_number || contact.phone
-      })),
+      passengers: orderPassengers,
       payments: [{
         type: 'balance',
         amount: String(amount),
@@ -211,6 +231,19 @@ async function createOrder({ offerId, passengers, contact, amount, currency }) {
     console.error('Duffel order create failed:', err.errors || err.message);
     throw err;
   }
+}
+
+// E.164: + followed by 1-15 digits. Strip spaces, dashes, parens, dots, slashes.
+// If no leading +, leave caller's choice — Duffel needs +, so we add one if user
+// typed all digits and the number has a plausible length (≥7).
+function normalizePhoneE164(raw) {
+  if (!raw) return '';
+  let s = String(raw).trim();
+  // strip everything that isn't a digit or leading +
+  const hasPlus = s.startsWith('+');
+  s = s.replace(/[^\d]/g, '');
+  if (s.length < 7 || s.length > 15) return ''; // invalid length, will fail Duffel
+  return (hasPlus || s.length >= 10 ? '+' : '') + s;
 }
 
 function mockOffers({ origin, destination, depart_date, return_date, passengers }) {

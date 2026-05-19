@@ -3174,3 +3174,11 @@ footer.site-footer {
   pointer-events: none;
   flex-shrink: 0;
 }
+
+.bk-field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.bk-field-hint strong { color: var(--text); font-weight: 600; }
