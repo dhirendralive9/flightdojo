@@ -91,6 +91,14 @@ const footerLinks = {
 // Generated at boot — invalidates cached static assets when the server restarts
 const ASSET_VERSION = String(Date.now());
 
+// Top announcement ribbon (above primary nav). Configurable via .env.
+const ribbonConfig = {
+  enabled: process.env.RIBBON_ENABLED !== 'false',
+  phone_display: process.env.SUPPORT_PHONE_DISPLAY || '+1 (888) 555-0199',
+  phone_tel: (process.env.SUPPORT_PHONE_TEL || '+18885550199').replace(/[^\d+]/g, ''),
+  message: process.env.RIBBON_MESSAGE || 'Need help booking? Speak with a travel specialist.'
+};
+
 app.use((req, res, next) => {
   res.locals.navLinks = navLinks;
   res.locals.footerLinks = footerLinks;
@@ -100,6 +108,7 @@ app.use((req, res, next) => {
   res.locals.turnstileTestMode = turnstile.isTestMode;
   res.locals.stripePublishableKey = stripeService.publishableKey;
   res.locals.assetVersion = ASSET_VERSION;
+  res.locals.ribbon = ribbonConfig;
   next();
 });
 

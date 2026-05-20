@@ -1,3 +1,25 @@
+<% if (ribbon && ribbon.enabled) { %>
+<div class="top-ribbon">
+  <div class="top-ribbon-inner">
+    <div class="top-ribbon-message">
+      <i data-lucide="headphones" style="width:13px;height:13px;"></i>
+      <span><%= ribbon.message %></span>
+    </div>
+    <div class="top-ribbon-actions">
+      <a href="tel:<%= ribbon.phone_tel %>" class="top-ribbon-link">
+        <i data-lucide="phone" style="width:12px;height:12px;"></i>
+        <span><%= ribbon.phone_display %></span>
+      </a>
+      <span class="top-ribbon-divider" aria-hidden="true">·</span>
+      <a href="/contact" class="top-ribbon-link">
+        <i data-lucide="mail" style="width:12px;height:12px;"></i>
+        <span>Contact us</span>
+      </a>
+    </div>
+  </div>
+</div>
+<% } %>
+
 <nav class="navbar">
   <a href="/" class="logo">Flight<em>Dojo</em></a>
   <ul class="nav-center">
