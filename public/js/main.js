@@ -152,6 +152,75 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ─── GEO-BASED PREFILL ──────────────────────────────────────
+  // On home page, hit /api/geo/me to refine the origin airport + popular
+  // destinations based on visitor's actual location. Only runs if the form
+  // origin is still at the page default (the user hasn't started typing).
+  if (document.getElementById('originInput')) {
+    geoPrefill();
+  }
+  async function geoPrefill() {
+    try {
+      const res = await fetch('/api/geo/me');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Update origin airport ONLY if the user hasn't already typed something
+      // different. We compare against the page-rendered default by reading
+      // the input's `data-default` (set below on first run).
+      const originIn = document.getElementById('originInput');
+      const originHint = document.getElementById('originHint');
+      if (data.origin_iata && originIn) {
+        // Capture page default on first call
+        if (!originIn.dataset.default) {
+          originIn.dataset.default = originIn.value;
+        }
+        // Only override if user is still at the page default
+        if (originIn.value === originIn.dataset.default) {
+          originIn.value = data.origin_iata;
+          if (originHint) {
+            const cityLabel = data.origin_city + (data.origin_country ? ', ' + data.origin_country : '');
+            originHint.textContent = cityLabel;
+          }
+        }
+      }
+
+      // Refresh popular destinations grid if we got fresh ones
+      if (data.popular && Array.isArray(data.popular) && data.popular.length > 0) {
+        renderPopular(data.popular, data.origin_iata || document.getElementById('originInput')?.value);
+      }
+    } catch (err) {
+      // Silent — geo is a nice-to-have, page works without it
+    }
+  }
+  function renderPopular(popular, originIata) {
+    const grid = document.getElementById('popularRoutesGrid');
+    if (!grid) return;
+    const depart = document.querySelector('input[name="depart"]')?.value || '';
+    const ret = document.querySelector('input[name="return"]')?.value || '';
+    grid.innerHTML = popular.map(p => `
+      <a href="/search?origin=${encodeURIComponent(originIata || 'DEL')}&destination=${encodeURIComponent(p.iata)}&depart=${encodeURIComponent(depart)}&ret=${encodeURIComponent(ret)}&passengers=1" class="r-card" data-popular-card data-iata="${p.iata}">
+        <div class="r-route">
+          <span class="r-iata" data-origin-iata>${originIata || 'DEL'}</span>
+          <span class="r-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+          <span class="r-iata">${p.iata}</span>
+        </div>
+        <div class="r-name">${escapeHtml(p.city)}${p.country ? ', ' + escapeHtml(p.country) : ''}</div>
+        <div class="r-footer">
+          <div><span class="r-from">${escapeHtml(p.tag)}</span></div>
+          <div class="r-badge">
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+            Search
+          </div>
+        </div>
+      </a>
+    `).join('');
+    if (window.lucide) window.lucide.createIcons();
+  }
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   const sortBtns = document.querySelectorAll('.sort-btn');
   const offersList = document.getElementById('offersList');
   if (sortBtns.length && offersList) {

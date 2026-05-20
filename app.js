@@ -13,6 +13,7 @@ const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
 const proxycheck = require('./services/proxycheck');
+const geo = require('./services/geo');
 const mailer = require('./services/mailer');
 const auth = require('./services/auth');
 const weather = require('./services/weather');
@@ -36,6 +37,10 @@ const passportUpload = multer({
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+if (BASE_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
+  console.warn('⚠⚠⚠ BASE_URL is set to localhost in production! Emails will contain localhost links.');
+  console.warn('    Set BASE_URL=https://flightdojo.it.com in your .env');
+}
 
 // ─── MongoDB ─────────────────────────────────────────────
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/flightdojo';
@@ -160,8 +165,10 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: mongoUri,
     ttl: 30 * 24 * 60 * 60,
-    autoRemove: 'native',
-    crypto: { secret: sessionSecret }
+    autoRemove: 'native'
+    // crypto.secret removed — kruptein requires 2+ each of upper/lower/digit/special
+    // in the secret, and throws null-deref otherwise. Session payload is just
+    // {userId} and Mongo connection is TLS-encrypted in transit anyway.
   })
 }));
 
@@ -296,12 +303,62 @@ function normalizePhone(raw) {
 // ─── PUBLIC PAGES ────────────────────────────────────────
 app.get('/', (req, res) => {
   const dates = defaultDates();
+  // We render with sensible defaults but client-side JS will hit /api/geo/me
+  // immediately to refine origin + popular destinations based on the visitor's IP.
+  const defaultOrigin = 'DEL';
+  const defaultDest = 'DXB';
   res.render('home', {
     title: 'FlightDojo — Find. Book. Fly.',
-    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
-    origin_info: airportsService.byIata('DEL'),
-    destination_info: airportsService.byIata('MXP')
+    prefill: { origin: defaultOrigin, destination: defaultDest, depart: dates.depart, return: dates.return, passengers: 1 },
+    origin_info: airportsService.byIata(defaultOrigin),
+    destination_info: airportsService.byIata(defaultDest),
+    popular: geo.popularDestinations(null, defaultOrigin)
   });
+});
+
+// Geo lookup for the visitor — used by client-side JS to refine the home
+// page prefill and popular destinations.
+// Cached on the session for the duration of the visit (so we don't hit
+// ProxyCheck on every page load).
+app.get('/api/geo/me', async (req, res) => {
+  // Use session cache if we already looked them up
+  if (req.session?.geo_cache && req.session.geo_cache.fetched_at) {
+    const age = Date.now() - req.session.geo_cache.fetched_at;
+    if (age < 24 * 60 * 60 * 1000) {  // 24h cache
+      return res.json({ cached: true, ...req.session.geo_cache.data });
+    }
+  }
+
+  const ip = proxycheck.clientIp(req);
+  let result = null;
+
+  if (ip && !proxycheck.isPrivateOrLocal(ip)) {
+    try {
+      const ipData = await proxycheck.check(ip, 'geo_lookup');
+      result = geo.locateFromIpData(ipData);
+      if (result) {
+        result.popular = geo.popularDestinations(ipData.country_code, result.origin_iata);
+      }
+    } catch (err) {
+      console.warn('Geo lookup failed:', err.message);
+    }
+  }
+
+  // If geo failed entirely, return sensible default
+  if (!result) {
+    result = {
+      origin_iata: null,
+      method: 'fallback',
+      popular: geo.popularDestinations(null, null)
+    };
+  }
+
+  // Cache on session
+  if (req.session) {
+    req.session.geo_cache = { fetched_at: Date.now(), data: result };
+  }
+
+  res.json(result);
 });
 
 app.get('/landing', (req, res) => {
@@ -2311,4 +2368,47 @@ app.listen(PORT, () => {
   } catch (err) {
     console.warn('⚠  Cron not started:', err.message);
   }
+
+  // Admin bootstrap from env
+  bootstrapAdminFromEnv().catch(err => console.warn('⚠  Admin bootstrap failed:', err.message));
 });
+
+async function bootstrapAdminFromEnv() {
+  const adminEmails = (process.env.ADMIN_EMAIL || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmails.length === 0) return;
+
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  let promoted = 0, created = 0;
+
+  for (const email of adminEmails) {
+    let user = await User.findOne({ email });
+    if (!user && adminPassword) {
+      if (adminPassword.length < 8) {
+        console.warn(`⚠  ADMIN_PASSWORD must be 8+ chars — skipping creation of ${email}`);
+        continue;
+      }
+      user = new User({ email, name: 'Admin' });
+      await user.setPassword(adminPassword);
+      user.email_verified_at = new Date();
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      created++;
+      console.log(`🔑 Created admin user from .env: ${email}`);
+      continue;
+    }
+    if (!user) {
+      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create.`);
+      continue;
+    }
+    if (!user.is_admin || user.admin_role !== 'owner') {
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      promoted++;
+      console.log(`🔑 Promoted to admin: ${email}`);
+    }
+  }
+  console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+}
