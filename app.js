@@ -40,7 +40,16 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 // ─── MongoDB ─────────────────────────────────────────────
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/flightdojo';
 mongoose.connect(mongoUri)
-  .then(() => console.log(`🍃 MongoDB connected: ${mongoUri.replace(/\/\/[^@]*@/, '//***@')}`))
+  .then(async () => {
+    console.log(`🍃 MongoDB connected: ${mongoUri.replace(/\/\/[^@]*@/, '//***@')}`);
+    // Bootstrap admin from env if configured (idempotent)
+    try {
+      const { bootstrapAdminFromEnv } = require('./scripts/bootstrap-admin');
+      await bootstrapAdminFromEnv();
+    } catch (err) {
+      console.warn('Admin bootstrap failed:', err.message);
+    }
+  })
   .catch(err => console.warn('⚠  MongoDB connection failed:', err.message, '— orders will not persist'));
 
 app.set('view engine', 'ejs');
@@ -123,20 +132,34 @@ const sessionSecret = process.env.SESSION_SECRET || 'flightdojo-dev-secret-CHANG
 if (sessionSecret.includes('CHANGE-IN-PRODUCTION')) {
   console.warn('⚠  SESSION_SECRET not set — using insecure default. Set a random 32+ char string in .env for production.');
 }
+
+// Decide cookie security based on env, NOT on NODE_ENV alone.
+// If COOKIE_SECURE is set explicitly ('true' / 'false'), use that.
+// Otherwise default to production = secure, dev = insecure.
+// This lets you handle Cloudflare Flexible SSL (HTTPS-to-CF, HTTP-to-origin)
+// by setting COOKIE_SECURE=false even in production.
+let cookieSecure;
+if (process.env.COOKIE_SECURE === 'true') cookieSecure = true;
+else if (process.env.COOKIE_SECURE === 'false') cookieSecure = false;
+else cookieSecure = process.env.NODE_ENV === 'production';
+
+console.log(`🍪 Session cookies: secure=${cookieSecure}, sameSite=lax`);
+console.log(`   (override with COOKIE_SECURE=true or COOKIE_SECURE=false in .env)`);
+
 app.use(session({
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
-  rolling: true,           // refresh expiry on every request
+  rolling: true,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure,
     sameSite: 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000  // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000
   },
   store: MongoStore.create({
     mongoUrl: mongoUri,
-    ttl: 30 * 24 * 60 * 60,    // session lifetime in seconds
+    ttl: 30 * 24 * 60 * 60,
     autoRemove: 'native',
     crypto: { secret: sessionSecret }
   })
@@ -1041,11 +1064,20 @@ app.post('/api/account/signup', async (req, res) => {
 // POST login
 app.post('/api/account/login', async (req, res) => {
   const { email, password } = req.body || {};
+  console.log(`🔐 Login attempt: ${email}`);
   const result = await auth.loginWithPassword({ email, password });
-  if (!result.ok) return res.status(401).json({ error: result.error });
+  if (!result.ok) {
+    console.warn(`🔐 ✗ Login failed for ${email}: ${result.error}`);
+    return res.status(401).json({ error: result.error });
+  }
 
   req.session.userId = result.user._id;
-  req.session.save(() => {
+  req.session.save((err) => {
+    if (err) {
+      console.error(`🔐 ✗ Session save failed for ${email}:`, err.message);
+      return res.status(500).json({ error: 'Session storage failed. Please try again.' });
+    }
+    console.log(`🔐 ✓ Login OK for ${email} (session: ${req.session.id.slice(0, 8)}…, secure cookie: ${cookieSecure})`);
     res.json({ ok: true, redirect: req.body.next || '/account' });
   });
 });
