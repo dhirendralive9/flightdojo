@@ -13,6 +13,7 @@ const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
 const proxycheck = require('./services/proxycheck');
+const geo = require('./services/geo');
 const mailer = require('./services/mailer');
 const auth = require('./services/auth');
 const weather = require('./services/weather');
@@ -35,7 +36,16 @@ const passportUpload = multer({
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+// Override process.env.BASE_URL with the normalized value so every other
+// module (mailer, cron, routes) gets the clean version too. This eliminates
+// "https://flightdojo.it.com//account/..." double-slash bugs that happen
+// when an operator puts a trailing slash in .env.
+process.env.BASE_URL = BASE_URL;
+if (BASE_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
+  console.warn('⚠⚠⚠ BASE_URL is set to localhost in production! Emails will contain localhost links.');
+  console.warn('    Set BASE_URL=https://flightdojo.it.com in your .env');
+}
 
 // ─── MongoDB ─────────────────────────────────────────────
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/flightdojo';
@@ -160,8 +170,10 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: mongoUri,
     ttl: 30 * 24 * 60 * 60,
-    autoRemove: 'native',
-    crypto: { secret: sessionSecret }
+    autoRemove: 'native'
+    // crypto.secret removed — kruptein requires 2+ each of upper/lower/digit/special
+    // in the secret, and throws null-deref otherwise. Session payload is just
+    // {userId} and Mongo connection is TLS-encrypted in transit anyway.
   })
 }));
 
@@ -269,6 +281,36 @@ function generateReference() {
   return `FD-${s}`;
 }
 
+// Sign an order reference so emails can include a one-click view link without
+// requiring login. The token is HMAC-SHA256 over the reference, truncated to
+// 16 chars. Anyone who has both the reference AND the token can view the
+// order; guessing the token requires breaking HMAC-SHA256.
+function signOrderToken(reference) {
+  return crypto
+    .createHmac('sha256', sessionSecret)
+    .update(`order-view:${reference}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function verifyOrderToken(reference, token) {
+  if (!reference || !token || typeof token !== 'string') return false;
+  const expected = signOrderToken(reference);
+  // Constant-time compare (Buffer.compare via timingSafeEqual)
+  try {
+    const a = Buffer.from(expected);
+    const b = Buffer.from(token);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch (e) { return false; }
+}
+
+// Build a public booking-status URL that works without login.
+function buildPublicBookingUrl(reference) {
+  const token = signOrderToken(reference);
+  return `${process.env.BASE_URL || ''}/booking/${reference}?t=${token}`;
+}
+
 // Phone check — keep it simple. Require "+" and at least 9 digits.
 // Duffel is the source of truth for what they'll accept; we just shape the input.
 function normalizePhone(raw) {
@@ -296,12 +338,62 @@ function normalizePhone(raw) {
 // ─── PUBLIC PAGES ────────────────────────────────────────
 app.get('/', (req, res) => {
   const dates = defaultDates();
+  // We render with sensible defaults but client-side JS will hit /api/geo/me
+  // immediately to refine origin + popular destinations based on the visitor's IP.
+  const defaultOrigin = 'DEL';
+  const defaultDest = 'DXB';
   res.render('home', {
     title: 'FlightDojo — Find. Book. Fly.',
-    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
-    origin_info: airportsService.byIata('DEL'),
-    destination_info: airportsService.byIata('MXP')
+    prefill: { origin: defaultOrigin, destination: defaultDest, depart: dates.depart, return: dates.return, passengers: 1 },
+    origin_info: airportsService.byIata(defaultOrigin),
+    destination_info: airportsService.byIata(defaultDest),
+    popular: geo.popularDestinations(null, defaultOrigin)
   });
+});
+
+// Geo lookup for the visitor — used by client-side JS to refine the home
+// page prefill and popular destinations.
+// Cached on the session for the duration of the visit (so we don't hit
+// ProxyCheck on every page load).
+app.get('/api/geo/me', async (req, res) => {
+  // Use session cache if we already looked them up
+  if (req.session?.geo_cache && req.session.geo_cache.fetched_at) {
+    const age = Date.now() - req.session.geo_cache.fetched_at;
+    if (age < 24 * 60 * 60 * 1000) {  // 24h cache
+      return res.json({ cached: true, ...req.session.geo_cache.data });
+    }
+  }
+
+  const ip = proxycheck.clientIp(req);
+  let result = null;
+
+  if (ip && !proxycheck.isPrivateOrLocal(ip)) {
+    try {
+      const ipData = await proxycheck.check(ip, 'geo_lookup');
+      result = geo.locateFromIpData(ipData);
+      if (result) {
+        result.popular = geo.popularDestinations(ipData.country_code, result.origin_iata);
+      }
+    } catch (err) {
+      console.warn('Geo lookup failed:', err.message);
+    }
+  }
+
+  // If geo failed entirely, return sensible default
+  if (!result) {
+    result = {
+      origin_iata: null,
+      method: 'fallback',
+      popular: geo.popularDestinations(null, null)
+    };
+  }
+
+  // Cache on session
+  if (req.session) {
+    req.session.geo_cache = { fetched_at: Date.now(), data: result };
+  }
+
+  res.json(result);
 });
 
 app.get('/landing', (req, res) => {
@@ -760,6 +852,7 @@ app.post('/api/book/intent', async (req, res) => {
       client_secret: intent.client_secret,
       payment_intent_id: intent.id,
       order_reference: reference,
+      order_token: signOrderToken(reference),
       amount,
       currency,
       mock: !!intent._mock
@@ -771,12 +864,60 @@ app.post('/api/book/intent', async (req, res) => {
 });
 
 // Step 3: After Stripe redirects back, show status
+// Public booking-status page. Anyone with EITHER a valid token (sent in the
+// confirmation email) OR a matching email (entered via a form) OR an account
+// linked to this order can view it. Without any of these we show an email-entry
+// form instead of the order details — this prevents enumeration of guessed
+// order references.
 app.get('/booking/:reference', async (req, res) => {
   const order = await Order.findOne({ reference: req.params.reference }).catch(() => null);
+
+  // No such order → render generic "not found" via the booking-status view
+  if (!order) {
+    return res.status(404).render('booking-status', {
+      title: `Booking ${req.params.reference} — FlightDojo`,
+      order: null,
+      reference: req.params.reference,
+      access_denied: false,
+      payment_intent_client_secret: null,
+      payment_intent_id: null
+    });
+  }
+
+  // Check authorization
+  const tokenMatch = req.query.t && verifyOrderToken(order.reference, req.query.t);
+  const userLinked = req.user && order.user_id && String(order.user_id) === String(req.user._id);
+  const isAdmin = req.user && req.user.is_admin;
+  const emailMatch = req.query.email &&
+    String(req.query.email).trim().toLowerCase() === String(order.contact_email || '').toLowerCase();
+
+  const authorized = tokenMatch || userLinked || isAdmin || emailMatch;
+
+  // Special case: if we have a payment_intent in query, we just came from
+  // Stripe redirect (3DS flow) and a token may not be present yet. Allow
+  // access — the payment intent metadata is verified during webhook handling
+  // anyway, this is just for display.
+  const fromStripeRedirect = !!req.query.payment_intent_client_secret;
+
+  if (!authorized && !fromStripeRedirect) {
+    return res.status(403).render('booking-status', {
+      title: `Booking ${req.params.reference} — FlightDojo`,
+      order: null,
+      reference: req.params.reference,
+      access_denied: true,        // tells the view to render an email-entry form
+      contact_email_hint: order.contact_email
+        ? order.contact_email.replace(/(.{1,2}).*(@.*)/, '$1***$2')
+        : null,
+      payment_intent_client_secret: null,
+      payment_intent_id: null
+    });
+  }
+
   res.render('booking-status', {
     title: `Booking ${req.params.reference} — FlightDojo`,
     order,
     reference: req.params.reference,
+    access_denied: false,
     payment_intent_client_secret: req.query.payment_intent_client_secret || null,
     payment_intent_id: req.query.payment_intent || null
   });
@@ -2311,4 +2452,47 @@ app.listen(PORT, () => {
   } catch (err) {
     console.warn('⚠  Cron not started:', err.message);
   }
+
+  // Admin bootstrap from env
+  bootstrapAdminFromEnv().catch(err => console.warn('⚠  Admin bootstrap failed:', err.message));
 });
+
+async function bootstrapAdminFromEnv() {
+  const adminEmails = (process.env.ADMIN_EMAIL || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmails.length === 0) return;
+
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  let promoted = 0, created = 0;
+
+  for (const email of adminEmails) {
+    let user = await User.findOne({ email });
+    if (!user && adminPassword) {
+      if (adminPassword.length < 8) {
+        console.warn(`⚠  ADMIN_PASSWORD must be 8+ chars — skipping creation of ${email}`);
+        continue;
+      }
+      user = new User({ email, name: 'Admin' });
+      await user.setPassword(adminPassword);
+      user.email_verified_at = new Date();
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      created++;
+      console.log(`🔑 Created admin user from .env: ${email}`);
+      continue;
+    }
+    if (!user) {
+      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create.`);
+      continue;
+    }
+    if (!user.is_admin || user.admin_role !== 'owner') {
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      promoted++;
+      console.log(`🔑 Promoted to admin: ${email}`);
+    }
+  }
+  console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+}

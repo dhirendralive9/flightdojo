@@ -716,6 +716,7 @@
       clientSecret = data.client_secret;
       paymentIntentId = data.payment_intent_id;
       orderReference = data.order_reference;
+      window.__fdOrderToken = data.order_token || '';
 
       if (data.mock) {
         showMessage(
@@ -724,7 +725,7 @@
         );
         unlockPayment();
         document.getElementById('paymentElement').innerHTML =
-          '<div style="padding:16px;background:var(--coral-soft);border-radius:6px;font-size:13px;color:var(--text-muted);">Mock Stripe — no card form to render. <a href="/booking/' + orderReference + '" style="color:var(--coral);">Click here to simulate success</a>.</div>';
+          '<div style="padding:16px;background:var(--coral-soft);border-radius:6px;font-size:13px;color:var(--text-muted);">Mock Stripe — no card form to render. <a href="/booking/' + orderReference + (window.__fdOrderToken ? '?t=' + encodeURIComponent(window.__fdOrderToken) : '') + '" style="color:var(--coral);">Click here to simulate success</a>.</div>';
         document.getElementById('paymentElement').style.display = 'block';
         document.getElementById('payBtn').disabled = true;
         return;
@@ -815,7 +816,8 @@
     label.textContent = 'Processing…';
     btn.querySelector('[data-lucide="lock"]')?.replaceWith(createSpinner());
 
-    const returnUrl = window.location.origin + '/booking/' + orderReference;
+    const tokenSuffix = window.__fdOrderToken ? ('?t=' + encodeURIComponent(window.__fdOrderToken)) : '';
+    const returnUrl = window.location.origin + '/booking/' + orderReference + tokenSuffix;
 
     // Read billing for Stripe — used for AVS verification and Stripe receipt
     const formData = new FormData(document.getElementById('bookingForm'));
