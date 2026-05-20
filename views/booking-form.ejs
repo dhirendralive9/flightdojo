@@ -176,10 +176,77 @@
           </div>
         </section>
 
-        <!-- Step 3: Payment -->
+        <!-- Step 3: Billing address -->
         <section class="bk-step" id="step3">
           <div class="bk-step-header">
             <div class="bk-step-num">3</div>
+            <div>
+              <h2 class="bk-step-title">Billing address</h2>
+              <p class="bk-step-sub">
+                Must match the address on file with your card issuer (helps prevent declines and protects you against fraud).
+              </p>
+            </div>
+          </div>
+
+          <div class="bk-row bk-row-2">
+            <div class="bk-field">
+              <label class="bk-label">Cardholder full name</label>
+              <input type="text" name="billing[name]" id="billingName" class="bk-input" required autocomplete="cc-name" placeholder="As shown on card"/>
+              <div class="bk-field-hint">We'll prefill from passenger 1.</div>
+            </div>
+            <div class="bk-field">
+              <label class="bk-label">Billing email <span class="bk-label-opt">(receipt)</span></label>
+              <input type="email" name="billing[email]" id="billingEmail" class="bk-input" required autocomplete="email" placeholder="you@example.com"/>
+            </div>
+          </div>
+
+          <div class="bk-row bk-row-2">
+            <div class="bk-field">
+              <label class="bk-label">Country</label>
+              <select name="billing[country]" id="billingCountry" class="bk-input" required autocomplete="country">
+                <option value="">Select country…</option>
+                <% countries.forEach((c, i) => { %>
+                  <option value="<%= c.code %>" data-name="<%= c.name %>"><%= c.name %></option>
+                  <% if (i === 11) { %><option disabled>──────────</option><% } %>
+                <% }) %>
+              </select>
+            </div>
+            <div class="bk-field">
+              <label class="bk-label">Company <span class="bk-label-opt">(optional, for invoice)</span></label>
+              <input type="text" name="billing[company]" id="billingCompany" class="bk-input" autocomplete="organization" placeholder="Acme Inc."/>
+            </div>
+          </div>
+
+          <div class="bk-field">
+            <label class="bk-label">Address line 1</label>
+            <input type="text" name="billing[line1]" id="billingLine1" class="bk-input" required autocomplete="address-line1" placeholder="Street and number"/>
+          </div>
+
+          <div class="bk-field">
+            <label class="bk-label">Address line 2 <span class="bk-label-opt">(optional)</span></label>
+            <input type="text" name="billing[line2]" id="billingLine2" class="bk-input" autocomplete="address-line2" placeholder="Apartment, suite, unit, building, floor, etc."/>
+          </div>
+
+          <div class="bk-row bk-row-3">
+            <div class="bk-field">
+              <label class="bk-label">City</label>
+              <input type="text" name="billing[city]" id="billingCity" class="bk-input" required autocomplete="address-level2"/>
+            </div>
+            <div class="bk-field">
+              <label class="bk-label">State / Region</label>
+              <input type="text" name="billing[state]" id="billingState" class="bk-input" required autocomplete="address-level1"/>
+            </div>
+            <div class="bk-field">
+              <label class="bk-label">ZIP / Postal code</label>
+              <input type="text" name="billing[postal_code]" id="billingPostal" class="bk-input" required autocomplete="postal-code"/>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 4: Payment -->
+        <section class="bk-step" id="step4">
+          <div class="bk-step-header">
+            <div class="bk-step-num">4</div>
             <div>
               <h2 class="bk-step-title">Payment</h2>
               <p class="bk-step-sub">
@@ -192,7 +259,7 @@
           <div id="paymentSection" class="bk-payment-locked">
             <div class="bk-payment-locked-msg">
               <i data-lucide="lock" style="width:14px;height:14px;"></i>
-              <span>Complete passenger and contact details above to enable payment.</span>
+              <span>Complete passenger, contact, and billing details above to enable payment.</span>
             </div>
           </div>
 

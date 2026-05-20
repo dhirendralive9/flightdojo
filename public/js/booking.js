@@ -22,6 +22,7 @@
     if (!form) return;
 
     setupDobInputs();
+    setupBillingPrefill();
 
     form.addEventListener('submit', onSubmit);
     form.addEventListener('input', onFormChange);
@@ -251,7 +252,7 @@
     // Sync DOB hidden fields first so we check current state
     syncAllDobHidden();
 
-    const required = document.querySelectorAll('#step1 input[required]:not(.bk-dob-seg):not(.bk-dob-native), #step1 select[required], #step2 input[required]');
+    const required = document.querySelectorAll('#step1 input[required]:not(.bk-dob-seg):not(.bk-dob-native), #step1 select[required], #step2 input[required], #step3 input[required], #step3 select[required]');
     for (const f of required) {
       if (!f.value || !f.value.trim()) return false;
       if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.value)) return false;
@@ -262,6 +263,61 @@
       if (!h.value || !/^\d{4}-\d{2}-\d{2}$/.test(h.value)) return false;
     }
     return true;
+  }
+
+  // Read billing fields out of the form
+  function collectBilling(formData) {
+    const countrySelect = document.getElementById('billingCountry');
+    const countryCode = formData.get('billing[country]') || '';
+    const countryName = countrySelect?.selectedOptions[0]?.dataset?.name || '';
+    return {
+      name: (formData.get('billing[name]') || '').trim(),
+      email: (formData.get('billing[email]') || '').trim(),
+      company: (formData.get('billing[company]') || '').trim(),
+      country: countryCode,
+      country_name: countryName,
+      line1: (formData.get('billing[line1]') || '').trim(),
+      line2: (formData.get('billing[line2]') || '').trim(),
+      city: (formData.get('billing[city]') || '').trim(),
+      state: (formData.get('billing[state]') || '').trim(),
+      postal_code: (formData.get('billing[postal_code]') || '').trim(),
+      phone: (formData.get('contact_phone') || '').trim()
+    };
+  }
+
+  // Prefill billing name from passenger 1 + email from contact, once the user
+  // has filled those in. Doesn't overwrite anything the user has already typed.
+  function setupBillingPrefill() {
+    const billingName = document.getElementById('billingName');
+    const billingEmail = document.getElementById('billingEmail');
+    const contactEmail = document.getElementById('contactEmail');
+    const pax1First = document.querySelector('[name="passengers[0][given_name]"]');
+    const pax1Last = document.querySelector('[name="passengers[0][family_name]"]');
+
+    function prefillName() {
+      if (billingName && !billingName.value.trim()) {
+        const first = pax1First?.value?.trim() || '';
+        const last = pax1Last?.value?.trim() || '';
+        const fullName = (first + ' ' + last).trim();
+        if (fullName) billingName.value = fullName;
+      }
+    }
+    function prefillEmail() {
+      if (billingEmail && !billingEmail.value.trim()) {
+        const e = contactEmail?.value?.trim() || '';
+        if (e) billingEmail.value = e;
+      }
+    }
+
+    // Trigger prefill when user moves focus out of the source fields
+    pax1First?.addEventListener('blur', prefillName);
+    pax1Last?.addEventListener('blur', prefillName);
+    contactEmail?.addEventListener('blur', prefillEmail);
+
+    // Also when the billing fields get focus, in case the user filled passenger
+    // data but never blurred (e.g. tabbed straight through)
+    billingName?.addEventListener('focus', prefillName);
+    billingEmail?.addEventListener('focus', prefillEmail);
   }
 
   function onFormChange() {
@@ -319,7 +375,8 @@
       offer_id: window.FD_OFFER.id,
       passengers,
       contact_email: formData.get('contact_email'),
-      contact_phone: formData.get('contact_phone')
+      contact_phone: formData.get('contact_phone'),
+      billing: collectBilling(formData)
     };
 
     showPaymentLoading();
@@ -460,12 +517,10 @@
 
     const returnUrl = window.location.origin + '/booking/' + orderReference;
 
-    // Read collected contact details to pass as billing details (no need for Link)
-    const contactEmail = document.getElementById('contactEmail')?.value || '';
+    // Read billing for Stripe — used for AVS verification and Stripe receipt
+    const formData = new FormData(document.getElementById('bookingForm'));
+    const billing = collectBilling(formData);
     const contactPhone = document.getElementById('contactPhone')?.value || '';
-    const firstPaxFirst = document.querySelector('[name="passengers[0][given_name]"]')?.value || '';
-    const firstPaxLast  = document.querySelector('[name="passengers[0][family_name]"]')?.value || '';
-    const cardholderName = (firstPaxFirst + ' ' + firstPaxLast).trim();
 
     const { error } = await stripe.confirmPayment({
       elements,
@@ -473,9 +528,17 @@
         return_url: returnUrl,
         payment_method_data: {
           billing_details: {
-            name: cardholderName || undefined,
-            email: contactEmail || undefined,
-            phone: contactPhone || undefined
+            name: billing.name || undefined,
+            email: billing.email || undefined,
+            phone: contactPhone || undefined,
+            address: {
+              line1: billing.line1 || undefined,
+              line2: billing.line2 || undefined,
+              city: billing.city || undefined,
+              state: billing.state || undefined,
+              postal_code: billing.postal_code || undefined,
+              country: billing.country || undefined
+            }
           }
         }
       }

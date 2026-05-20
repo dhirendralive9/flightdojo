@@ -3182,3 +3182,36 @@ footer.site-footer {
   line-height: 1.5;
 }
 .bk-field-hint strong { color: var(--text); font-weight: 600; }
+
+/* ═══ BILLING SECTION ═══ */
+.bk-label-opt {
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 10px;
+  margin-left: 4px;
+}
+.bk-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.bk-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+#step3 .bk-field {
+  margin-bottom: 12px;
+}
+#step3 .bk-row-2 .bk-field,
+#step3 .bk-row-3 .bk-field {
+  margin-bottom: 0;
+}
+@media (max-width: 720px) {
+  .bk-row-2,
+  .bk-row-3 { grid-template-columns: 1fr; }
+}

@@ -32,7 +32,7 @@ if (stripe) {
     });
 }
 
-async function createPaymentIntent({ amount, currency, metadata, receipt_email }) {
+async function createPaymentIntent({ amount, currency, metadata, receipt_email, billing }) {
   if (!stripe) {
     return {
       id: 'pi_mock_' + Math.random().toString(36).slice(2, 10),
@@ -44,15 +44,63 @@ async function createPaymentIntent({ amount, currency, metadata, receipt_email }
     };
   }
 
+  // Create a Stripe Customer with the full billing address so that:
+  //   1. Stripe stores the address on the customer record (visible in dashboard)
+  //   2. The receipt is sent with billing email + address
+  //   3. Future bookings from the same email can reuse the customer
+  //   4. Tax + invoice features can be enabled later without schema changes
+  let customerId;
+  if (billing && billing.email) {
+    try {
+      // Reuse existing customer if email already known, else create new
+      const existing = await stripe.customers.list({ email: billing.email, limit: 1 });
+      if (existing.data.length > 0) {
+        customerId = existing.data[0].id;
+        await stripe.customers.update(customerId, {
+          name: billing.name || undefined,
+          phone: billing.phone || undefined,
+          address: {
+            line1: billing.line1 || undefined,
+            line2: billing.line2 || undefined,
+            city: billing.city || undefined,
+            state: billing.state || undefined,
+            postal_code: billing.postal_code || undefined,
+            country: billing.country || undefined
+          },
+          metadata: { company: billing.company || '' }
+        });
+      } else {
+        const customer = await stripe.customers.create({
+          email: billing.email,
+          name: billing.name || undefined,
+          phone: billing.phone || undefined,
+          address: {
+            line1: billing.line1 || undefined,
+            line2: billing.line2 || undefined,
+            city: billing.city || undefined,
+            state: billing.state || undefined,
+            postal_code: billing.postal_code || undefined,
+            country: billing.country || undefined
+          },
+          metadata: { company: billing.company || '', source: 'flightdojo' }
+        });
+        customerId = customer.id;
+      }
+    } catch (err) {
+      console.warn('💳 Customer create/update failed (continuing without):', err.message);
+    }
+  }
+
   const pi = await stripe.paymentIntents.create({
     amount: Math.round(amount * 100), // dollars/euros → minor units
     currency: (currency || 'eur').toLowerCase(),
+    customer: customerId || undefined,
     payment_method_types: ['card'],
     metadata: metadata || {},
     receipt_email: receipt_email || undefined,
     description: metadata?.description || 'FlightDojo booking'
   });
-  console.log(`💳 PaymentIntent created: ${pi.id} · ${pi.currency.toUpperCase()} ${(pi.amount/100).toFixed(2)} · order ${metadata?.order_reference || 'unknown'}`);
+  console.log(`💳 PaymentIntent created: ${pi.id} · ${pi.currency.toUpperCase()} ${(pi.amount/100).toFixed(2)} · order ${metadata?.order_reference || 'unknown'}${customerId ? ' · customer ' + customerId : ''}`);
   return pi;
 }
 

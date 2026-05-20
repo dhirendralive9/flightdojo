@@ -33,6 +33,20 @@ const sliceSchema = new mongoose.Schema({
   segments: [segmentSchema]
 }, { _id: false });
 
+const billingSchema = new mongoose.Schema({
+  name: String,                  // Cardholder full name
+  email: String,                 // Billing email (often = contact_email)
+  company: String,               // Optional company name (for invoice)
+  country: { type: String, index: true },  // ISO 3166-1 alpha-2 (e.g. "US", "IN", "GB")
+  country_name: String,          // Human-readable for display
+  line1: String,                 // Street address
+  line2: String,                 // Apt / suite / unit (optional)
+  city: String,
+  state: String,                 // State / region / province
+  postal_code: String,           // ZIP / postal code
+  phone: String                  // Optional billing phone (often = contact_phone)
+}, { _id: false });
+
 const proxyCheckSchema = new mongoose.Schema({
   ip: String,
   risk_score: Number,
@@ -95,6 +109,10 @@ const orderSchema = new mongoose.Schema({
   passengers: [passengerSchema],
   contact_email: { type: String, index: true },
   contact_phone: String,
+
+  // Billing — cardholder address. Stored both here (for our admin + tax + chargeback
+  // defense) and on Stripe (for AVS during payment + receipts).
+  billing: billingSchema,
 
   // Security check
   proxy_check: proxyCheckSchema,

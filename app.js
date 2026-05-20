@@ -249,6 +249,8 @@ app.get('/api/airports/search', (req, res) => {
 
 // ─── BOOKING FLOW ────────────────────────────────────────
 
+const countries = require('./services/countries');
+
 // Step 1: Passenger details form
 app.get('/book/:offerId', async (req, res) => {
   try {
@@ -257,6 +259,7 @@ app.get('/book/:offerId', async (req, res) => {
     res.render('booking-form', {
       title: `Book ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination} — FlightDojo`,
       offer,
+      countries,
       origin_info: airportsService.byIata(offer.slices[0]?.origin),
       destination_info: airportsService.byIata(offer.slices[0]?.destination)
     });
@@ -335,6 +338,57 @@ app.post('/api/book/intent', async (req, res) => {
     // doc we save to MongoDB, so the webhook handler picks up the cleaned version.
     const normalizedContactPhone = phoneResult.e164;
 
+    // ───── Billing address validation ─────
+    // Required for AVS, chargeback defense, and tax compliance.
+    const billing = req.body.billing || {};
+    const REQUIRED_BILLING = [
+      ['name', 'Cardholder name'],
+      ['email', 'Billing email'],
+      ['country', 'Country'],
+      ['line1', 'Address line 1'],
+      ['city', 'City'],
+      ['state', 'State / region'],
+      ['postal_code', 'ZIP / postal code']
+    ];
+    for (const [field, label] of REQUIRED_BILLING) {
+      const v = billing[field];
+      if (!v || String(v).trim() === '') {
+        return res.status(400).json({
+          error: 'missing_billing_field',
+          message: `Billing address: "${label}" is required.`,
+          field
+        });
+      }
+    }
+    if (!/^[A-Z]{2}$/.test(billing.country)) {
+      return res.status(400).json({
+        error: 'invalid_country',
+        message: 'Billing country must be a 2-letter ISO code.',
+        field: 'country'
+      });
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(billing.email)) {
+      return res.status(400).json({
+        error: 'invalid_billing_email',
+        message: 'Please provide a valid billing email.',
+        field: 'email'
+      });
+    }
+    // Trim all string fields for storage hygiene
+    const cleanedBilling = {
+      name: String(billing.name).trim(),
+      email: String(billing.email).trim().toLowerCase(),
+      company: billing.company ? String(billing.company).trim() : '',
+      country: billing.country.toUpperCase(),
+      country_name: billing.country_name || '',
+      line1: String(billing.line1).trim(),
+      line2: billing.line2 ? String(billing.line2).trim() : '',
+      city: String(billing.city).trim(),
+      state: String(billing.state).trim(),
+      postal_code: String(billing.postal_code).trim(),
+      phone: normalizedContactPhone
+    };
+
     // ───── SECURITY: ProxyCheck IP gate ─────
     const ip = proxycheck.clientIp(req);
     const proxyResult = await proxycheck.check(ip, 'flightdojo_booking');
@@ -397,6 +451,7 @@ app.post('/api/book/intent', async (req, res) => {
         passengers,
         contact_email,
         contact_phone: normalizedContactPhone,
+        billing: cleanedBilling,
         proxy_check: proxyResult
       });
     } catch (err) {
@@ -405,15 +460,19 @@ app.post('/api/book/intent', async (req, res) => {
       order = { reference, _id: null };
     }
 
-    // Create Stripe PaymentIntent
+    // Create Stripe PaymentIntent — receipt goes to the billing email
+    // so the cardholder gets the Stripe receipt at the correct address.
     const intent = await stripeService.createPaymentIntent({
       amount,
       currency,
-      receipt_email: contact_email,
+      receipt_email: cleanedBilling.email || contact_email,
+      billing: cleanedBilling,
       metadata: {
         order_reference: reference,
         duffel_offer_id: offer_id,
-        description: `FlightDojo ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination}`
+        description: `FlightDojo ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination}`,
+        billing_country: cleanedBilling.country,
+        billing_postal: cleanedBilling.postal_code
       }
     });
 
