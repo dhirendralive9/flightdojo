@@ -58,6 +58,23 @@
                   Passenger <%= i + 1 %> <span class="bk-pax-type">Adult</span>
                 </div>
 
+                <% if (typeof user !== 'undefined' && user && user.saved_travelers && user.saved_travelers.length > 0) { %>
+                  <div class="bk-saved-traveler-row">
+                    <label class="bk-saved-label">
+                      <i data-lucide="bookmark" style="width:11px;height:11px;"></i>
+                      Use saved traveler:
+                    </label>
+                    <select class="bk-saved-traveler" data-pax-target="<%= i %>">
+                      <option value="">Choose…</option>
+                      <% user.saved_travelers.forEach(t => { %>
+                        <option value='<%= JSON.stringify({ title: t.title, given_name: t.given_name, family_name: t.family_name, born_on: t.born_on, gender: t.gender }) %>'>
+                          <%= t.given_name %> <%= t.family_name %><%= t.relationship && t.relationship !== 'other' ? ' (' + t.relationship + ')' : '' %>
+                        </option>
+                      <% }) %>
+                    </select>
+                  </div>
+                <% } %>
+
                 <div class="bk-row">
                   <div class="bk-field bk-field-small">
                     <label class="bk-label">Title</label>

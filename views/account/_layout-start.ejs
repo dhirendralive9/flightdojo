@@ -12,6 +12,21 @@
         <i data-lucide="ticket" style="width:14px;height:14px;"></i>
         My trips
       </a>
+      <a href="/account/notifications" class="<%= active_section === 'notifications' ? 'active' : '' %>">
+        <i data-lucide="bell" style="width:14px;height:14px;"></i>
+        Notifications
+        <% if (typeof unread_notifications !== 'undefined' && unread_notifications > 0) { %>
+          <span class="nav-badge"><%= unread_notifications %></span>
+        <% } %>
+      </a>
+      <a href="/account/travelers" class="<%= active_section === 'travelers' ? 'active' : '' %>">
+        <i data-lucide="users" style="width:14px;height:14px;"></i>
+        Travelers
+      </a>
+      <a href="/account/payment-methods" class="<%= active_section === 'payment-methods' ? 'active' : '' %>">
+        <i data-lucide="credit-card" style="width:14px;height:14px;"></i>
+        Payment methods
+      </a>
       <a href="/account/settings" class="<%= active_section === 'settings' ? 'active' : '' %>">
         <i data-lucide="settings" style="width:14px;height:14px;"></i>
         Settings

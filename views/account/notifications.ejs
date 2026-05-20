@@ -1,0 +1,63 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+  <div>
+    <h1 class="account-h1">Notifications</h1>
+    <p class="account-sub">Updates about your bookings, account, and travel.</p>
+  </div>
+  <% if (notifications.some(n => !n.read_at)) { %>
+    <button id="markAllRead" class="btn-ghost-hero" style="padding:8px 14px;">
+      <i data-lucide="check-check" style="width:13px;height:13px;"></i>
+      Mark all read
+    </button>
+  <% } %>
+</div>
+
+<% if (notifications.length === 0) { %>
+  <div class="account-empty">
+    <div class="account-empty-icon">
+      <i data-lucide="bell-off" style="width:36px;height:36px;"></i>
+    </div>
+    <h2>No notifications</h2>
+    <p>You're all caught up. New updates about your bookings will appear here.</p>
+  </div>
+<% } else { %>
+  <% const typeIcons = {
+    booking_confirmed: 'check-circle',
+    ticket_issued: 'plane',
+    travel_reminder: 'clock',
+    payment_received: 'credit-card',
+    support: 'message-square',
+    account: 'user',
+    system: 'bell'
+  }; %>
+
+  <div class="notif-list">
+    <% notifications.forEach(n => { %>
+      <div class="notif-item <%= n.read_at ? '' : 'unread' %>" data-id="<%= n._id %>">
+        <div class="notif-icon notif-icon-<%= n.type %>">
+          <i data-lucide="<%= typeIcons[n.type] || 'bell' %>" style="width:16px;height:16px;"></i>
+        </div>
+        <div class="notif-body">
+          <div class="notif-title"><%= n.title %></div>
+          <% if (n.body) { %><div class="notif-text"><%= n.body %></div><% } %>
+          <div class="notif-meta">
+            <span><%= new Date(n.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) %></span>
+            <% if (n.link) { %>
+              <a href="<%= n.link %>" class="notif-cta">View →</a>
+            <% } %>
+          </div>
+        </div>
+        <button class="notif-dismiss" data-dismiss="<%= n._id %>" aria-label="Dismiss">
+          <i data-lucide="x" style="width:13px;height:13px;"></i>
+        </button>
+      </div>
+    <% }) %>
+  </div>
+<% } %>
+
+<script src="/js/account.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

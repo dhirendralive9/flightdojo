@@ -23,6 +23,7 @@
 
     setupDobInputs();
     setupBillingPrefill();
+    setupSavedTravelerAutofill();
     setupSeatMaps();
     setupBags();
     setupAffiliateTracking();
@@ -321,6 +322,49 @@
     // data but never blurred (e.g. tabbed straight through)
     billingName?.addEventListener('focus', prefillName);
     billingEmail?.addEventListener('focus', prefillEmail);
+  }
+
+  // ─── SAVED TRAVELER AUTOFILL ──────────────────────────────
+  // When the user picks a saved traveler from the dropdown, populate that
+  // passenger card's title/name/DOB/gender fields. The DOB segments need
+  // special handling since they're not a single input.
+  function setupSavedTravelerAutofill() {
+    document.querySelectorAll('.bk-saved-traveler').forEach(select => {
+      select.addEventListener('change', () => {
+        if (!select.value) return;
+        let data;
+        try { data = JSON.parse(select.value); } catch (e) { return; }
+        const paxIdx = select.dataset.paxTarget;
+        const card = document.querySelector(`[data-pax-idx="${paxIdx}"]`);
+        if (!card) return;
+
+        const setField = (name, value) => {
+          const el = card.querySelector(`[name="passengers[${paxIdx}][${name}]"]`);
+          if (el && value !== undefined && value !== '') el.value = value;
+        };
+        setField('title', data.title || 'mr');
+        setField('given_name', data.given_name || '');
+        setField('family_name', data.family_name || '');
+        setField('gender', data.gender || 'm');
+
+        // DOB: split YYYY-MM-DD into the 3 segment inputs
+        if (data.born_on && /^\d{4}-\d{2}-\d{2}$/.test(data.born_on)) {
+          const [y, m, d] = data.born_on.split('-');
+          const mm = card.querySelector(`.bk-dob-seg[data-seg="mm"][data-pax="${paxIdx}"]`);
+          const dd = card.querySelector(`.bk-dob-seg[data-seg="dd"][data-pax="${paxIdx}"]`);
+          const yy = card.querySelector(`.bk-dob-seg[data-seg="yyyy"][data-pax="${paxIdx}"]`);
+          if (mm) mm.value = m;
+          if (dd) dd.value = d;
+          if (yy) yy.value = y;
+          const hidden = card.querySelector(`[data-dob-hidden][data-pax="${paxIdx}"]`);
+          if (hidden) hidden.value = data.born_on;
+        }
+
+        // Reset selector so the user can re-pick if needed
+        select.value = '';
+        onFormChange();
+      });
+    });
   }
 
   // ─── SEAT MAPS ────────────────────────────────────────────

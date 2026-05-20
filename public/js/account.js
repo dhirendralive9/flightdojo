@@ -246,4 +246,44 @@
       }
     });
   }
+  // ─── NOTIFICATIONS ───
+  const markAllBtn = document.getElementById('markAllRead');
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', async () => {
+      await fetch('/api/account/notifications/read-all', { method: 'POST' });
+      window.location.reload();
+    });
+  }
+
+  document.querySelectorAll('[data-dismiss]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.dismiss;
+      const item = btn.closest('.notif-item');
+      try {
+        await fetch(`/api/account/notifications/${id}/dismiss`, { method: 'POST' });
+        if (item) {
+          item.style.transition = 'opacity 0.25s, max-height 0.25s';
+          item.style.opacity = '0';
+          item.style.maxHeight = '0';
+          setTimeout(() => item.remove(), 260);
+        }
+      } catch (err) {}
+    });
+  });
+
+  // Mark a single notification read when clicked
+  document.querySelectorAll('.notif-item.unread').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      // Don't fire when clicking the dismiss button or CTA link
+      if (e.target.closest('[data-dismiss]')) return;
+      const id = item.dataset.id;
+      if (!id) return;
+      try {
+        await fetch(`/api/account/notifications/${id}/read`, { method: 'POST' });
+        item.classList.remove('unread');
+      } catch (err) {}
+    });
+  });
+
 })();

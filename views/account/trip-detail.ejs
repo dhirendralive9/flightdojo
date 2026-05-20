@@ -35,6 +35,10 @@
 <div class="trip-detail-grid">
   <div class="trip-detail-main">
 
+    <!-- Day-of-travel companion (populated by JS if departure within 7 days) -->
+    <div id="travelDayBlock" class="travel-day-block" style="display:none;"
+         data-reference="<%= order.reference %>"></div>
+
     <!-- Itinerary -->
     <div class="trip-detail-card">
       <div class="trip-card-title">Itinerary</div>
@@ -168,5 +172,6 @@
   </aside>
 </div>
 
+<script src="/js/account-trip-detail.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
 <%- include('_layout-end') %>
 <%- include('../partials/footer') %>

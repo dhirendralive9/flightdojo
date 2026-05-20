@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
+const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
@@ -14,8 +15,22 @@ const stripeService = require('./services/stripe');
 const proxycheck = require('./services/proxycheck');
 const mailer = require('./services/mailer');
 const auth = require('./services/auth');
+const weather = require('./services/weather');
 const Order = require('./models/Order');
 const User = require('./models/User');
+const Notification = require('./models/Notification');
+const PassportDocument = require('./models/PassportDocument');
+
+// Multer for passport file uploads — store in memory, 8MB max, jpg/png/pdf only
+const passportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only JPG, PNG, WebP, or PDF files allowed.'));
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -126,8 +141,21 @@ app.use(session({
   })
 }));
 
-// Attach req.user + res.locals.user (without enforcing auth)
+// Attach req.user + res.locals.user (without enforcing auth) + notification count
 app.use(auth.attachUser);
+app.use(async (req, res, next) => {
+  if (req.user) {
+    try {
+      const unread = await Notification.countDocuments({
+        user_id: req.user._id,
+        read_at: null,
+        dismissed_at: null
+      });
+      res.locals.unread_notifications = unread;
+    } catch (e) { res.locals.unread_notifications = 0; }
+  }
+  next();
+});
 
 const navLinks = [
   { label: 'Home', href: '/' },
@@ -761,6 +789,18 @@ async function handleStripeWebhook(req, res) {
         order.email_sent_at = new Date();
         await order.save();
       }
+
+      // Push an in-app notification if this order is linked to a user
+      if (order.user_id) {
+        const route = order.slices?.[0] ? `${order.slices[0].origin} → ${order.slices[order.slices.length-1].destination}` : 'your trip';
+        Notification.push(order.user_id, {
+          type: 'booking_confirmed',
+          title: `Booking confirmed · ${route}`,
+          body: `We've received your payment for order ${order.reference}. Your airline booking reference will be issued within 2 business hours.`,
+          link: `/account/bookings/${order.reference}`,
+          order_reference: order.reference
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error('Webhook processing error:', err);
     }
@@ -856,6 +896,17 @@ app.post('/api/account/signup', async (req, res) => {
     // Send welcome email (fire-and-forget)
     const dashboardUrl = (process.env.BASE_URL || 'http://localhost:3000') + '/account';
     mailer.sendWelcome(result.user, dashboardUrl, result.linked_orders).catch(() => {});
+
+    // In-app welcome notification
+    Notification.push(result.user._id, {
+      type: 'account',
+      title: 'Welcome to FlightDojo',
+      body: result.linked_orders > 0
+        ? `Your account is ready. We linked ${result.linked_orders} existing booking${result.linked_orders > 1 ? 's' : ''} to your dashboard.`
+        : 'Your account is ready. All future bookings will appear here automatically.',
+      link: '/account'
+    }).catch(() => {});
+
     res.json({
       ok: true,
       linked_orders: result.linked_orders,
@@ -1046,6 +1097,224 @@ app.post('/api/account/change-password', auth.requireAuth, async (req, res) => {
   await req.user.setPassword(new_password);
   await req.user.save();
   res.json({ ok: true });
+});
+
+// ─── NOTIFICATIONS ──────────────────────────────────────
+
+app.get('/account/notifications', auth.requireAuth, async (req, res) => {
+  const notifications = await Notification.find({
+    user_id: req.user._id,
+    dismissed_at: null
+  }).sort({ createdAt: -1 }).limit(50).lean();
+  res.render('account/notifications', {
+    title: 'Notifications — FlightDojo',
+    notifications,
+    active_section: 'notifications'
+  });
+});
+
+app.post('/api/account/notifications/:id/read', auth.requireAuth, async (req, res) => {
+  await Notification.updateOne(
+    { _id: req.params.id, user_id: req.user._id },
+    { read_at: new Date() }
+  );
+  res.json({ ok: true });
+});
+
+app.post('/api/account/notifications/read-all', auth.requireAuth, async (req, res) => {
+  await Notification.updateMany(
+    { user_id: req.user._id, read_at: null },
+    { read_at: new Date() }
+  );
+  res.json({ ok: true });
+});
+
+app.post('/api/account/notifications/:id/dismiss', auth.requireAuth, async (req, res) => {
+  await Notification.updateOne(
+    { _id: req.params.id, user_id: req.user._id },
+    { dismissed_at: new Date(), read_at: new Date() }
+  );
+  res.json({ ok: true });
+});
+
+// ─── SAVED TRAVELERS ─────────────────────────────────────
+
+app.get('/account/travelers', auth.requireAuth, async (req, res) => {
+  res.render('account/travelers', {
+    title: 'Saved travelers — FlightDojo',
+    travelers: req.user.saved_travelers || [],
+    active_section: 'travelers'
+  });
+});
+
+app.post('/api/account/travelers', auth.requireAuth, async (req, res) => {
+  const { title, given_name, family_name, born_on, gender, relationship } = req.body || {};
+  if (!given_name || !family_name) {
+    return res.status(400).json({ error: 'First and last name are required.' });
+  }
+  req.user.saved_travelers.push({
+    title: String(title || 'mr').toLowerCase(),
+    given_name: String(given_name).trim().slice(0, 80),
+    family_name: String(family_name).trim().slice(0, 80),
+    born_on: typeof born_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(born_on) ? born_on : '',
+    gender: ['m', 'f'].includes((gender || '').toLowerCase()) ? gender.toLowerCase() : 'm',
+    relationship: String(relationship || 'other').trim().slice(0, 30)
+  });
+  await req.user.save();
+  res.json({ ok: true, traveler: req.user.saved_travelers[req.user.saved_travelers.length - 1] });
+});
+
+app.put('/api/account/travelers/:id', auth.requireAuth, async (req, res) => {
+  const t = req.user.saved_travelers.id(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Traveler not found.' });
+  const { title, given_name, family_name, born_on, gender, relationship } = req.body || {};
+  if (title !== undefined) t.title = String(title).toLowerCase();
+  if (given_name !== undefined) t.given_name = String(given_name).trim().slice(0, 80);
+  if (family_name !== undefined) t.family_name = String(family_name).trim().slice(0, 80);
+  if (born_on !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(born_on)) t.born_on = born_on;
+  if (gender !== undefined && ['m', 'f'].includes((gender || '').toLowerCase())) t.gender = gender.toLowerCase();
+  if (relationship !== undefined) t.relationship = String(relationship).trim().slice(0, 30);
+  await req.user.save();
+  res.json({ ok: true });
+});
+
+app.delete('/api/account/travelers/:id', auth.requireAuth, async (req, res) => {
+  const t = req.user.saved_travelers.id(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Traveler not found.' });
+  t.deleteOne();
+  await req.user.save();
+  // Also unlink any passports referencing this traveler (passports stay, but become unassigned)
+  await PassportDocument.updateMany(
+    { user_id: req.user._id, traveler_id: req.params.id },
+    { traveler_id: null }
+  );
+  res.json({ ok: true });
+});
+
+// Public-ish endpoint to list saved travelers for autofill on booking form
+app.get('/api/account/travelers', auth.requireAuth, async (req, res) => {
+  res.json({ travelers: req.user.saved_travelers || [] });
+});
+
+// ─── PASSPORTS ───────────────────────────────────────────
+
+app.post('/api/account/passports', auth.requireAuth, passportUpload.single('passport'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  const { traveler_id } = req.body || {};
+
+  const { ciphertext, iv, tag, encrypted } = PassportDocument.encryptBuffer(req.file.buffer);
+
+  const doc = await PassportDocument.create({
+    user_id: req.user._id,
+    traveler_id: traveler_id || null,
+    filename: req.file.originalname.slice(0, 200),
+    mime_type: req.file.mimetype,
+    size_bytes: req.file.size,
+    data: ciphertext,
+    iv, tag, encrypted
+  });
+
+  res.json({
+    ok: true,
+    document: {
+      id: doc._id,
+      filename: doc.filename,
+      mime_type: doc.mime_type,
+      size_bytes: doc.size_bytes,
+      traveler_id: doc.traveler_id,
+      encrypted: doc.encrypted,
+      createdAt: doc.createdAt
+    }
+  });
+});
+
+app.get('/api/account/passports', auth.requireAuth, async (req, res) => {
+  const docs = await PassportDocument.find({ user_id: req.user._id })
+    .select('-data -iv -tag')
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json({ passports: docs });
+});
+
+// Download/view a passport (returns the file inline if image, attachment if PDF)
+app.get('/account/passports/:id/file', auth.requireAuth, async (req, res) => {
+  const doc = await PassportDocument.findOne({ _id: req.params.id, user_id: req.user._id });
+  if (!doc) return res.status(404).send('Not found');
+  const buf = doc.encrypted
+    ? PassportDocument.decryptBuffer(doc.data, doc.iv, doc.tag)
+    : doc.data;
+  res.setHeader('Content-Type', doc.mime_type);
+  res.setHeader('Content-Disposition', `inline; filename="${doc.filename}"`);
+  // Don't cache passport content
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(buf);
+});
+
+app.delete('/api/account/passports/:id', auth.requireAuth, async (req, res) => {
+  await PassportDocument.deleteOne({ _id: req.params.id, user_id: req.user._id });
+  res.json({ ok: true });
+});
+
+// ─── PAYMENT METHODS ─────────────────────────────────────
+
+app.get('/account/payment-methods', auth.requireAuth, async (req, res) => {
+  const methods = await stripeService.listPaymentMethods(req.user.email);
+  res.render('account/payment-methods', {
+    title: 'Payment methods — FlightDojo',
+    methods,
+    active_section: 'payment-methods'
+  });
+});
+
+app.delete('/api/account/payment-methods/:id', auth.requireAuth, async (req, res) => {
+  // Confirm the PM actually belongs to this user (via their Stripe customer)
+  const methods = await stripeService.listPaymentMethods(req.user.email);
+  if (!methods.find(m => m.id === req.params.id)) {
+    return res.status(404).json({ error: 'Payment method not found.' });
+  }
+  const result = await stripeService.detachPaymentMethod(req.params.id);
+  res.json(result);
+});
+
+// ─── DAY-OF-TRAVEL DATA (weather + tips) ─────────────────
+
+app.get('/api/account/bookings/:reference/travel-day', auth.requireAuth, async (req, res) => {
+  const order = await Order.findOne({
+    reference: req.params.reference,
+    user_id: req.user._id
+  }).lean();
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+  // Only return travel-day info if departure is in the next 7 days
+  const firstSlice = order.slices?.[0];
+  if (!firstSlice?.departure_date) return res.json({ show: false });
+
+  const dep = new Date(firstSlice.departure_date + 'T00:00:00Z');
+  const hoursUntil = (dep - Date.now()) / (1000 * 60 * 60);
+  if (hoursUntil > 7 * 24 || hoursUntil < -24) {
+    return res.json({ show: false, hours_until: Math.round(hoursUntil) });
+  }
+
+  const destinationIata = order.slices[order.slices.length - 1].destination;
+  const weatherSnapshot = await weather.forDestination(destinationIata);
+
+  res.json({
+    show: true,
+    hours_until: Math.round(hoursUntil),
+    destination: destinationIata,
+    destination_name: order.slices[order.slices.length - 1].destination_name,
+    weather: weatherSnapshot,
+    checklist: [
+      { id: 'passport', label: 'Passport (and visa if required)', critical: true },
+      { id: 'tickets', label: 'Booking reference saved offline', critical: true },
+      { id: 'insurance', label: 'Travel insurance documents' },
+      { id: 'chargers', label: 'Phone charger + power bank' },
+      { id: 'adapter', label: 'Power adapter for destination' },
+      { id: 'meds', label: 'Prescriptions and basic medications' },
+      { id: 'cash', label: 'Local currency / debit card with no FX fees' },
+      { id: 'checkin', label: `Online check-in (opens 24h before for ${order.carrier_iata || 'most airlines'})` }
+    ]
+  });
 });
 
 // ─── STATIC PAGES ────────────────────────────────────────

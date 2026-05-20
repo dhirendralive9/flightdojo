@@ -123,10 +123,45 @@ function constructWebhookEvent(rawBody, signature) {
   return stripe.webhooks.constructEvent(rawBody, signature, secret);
 }
 
+async function listPaymentMethods(stripeCustomerEmail) {
+  if (!stripe || !stripeCustomerEmail) return [];
+  try {
+    const customers = await stripe.customers.list({ email: stripeCustomerEmail, limit: 1 });
+    if (customers.data.length === 0) return [];
+    const customerId = customers.data[0].id;
+    const pms = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 20 });
+    return pms.data.map(pm => ({
+      id: pm.id,
+      brand: pm.card?.brand || 'card',
+      last4: pm.card?.last4 || '••••',
+      exp_month: pm.card?.exp_month,
+      exp_year: pm.card?.exp_year,
+      country: pm.card?.country || null,
+      created: pm.created
+    }));
+  } catch (err) {
+    console.warn('listPaymentMethods failed:', err.message);
+    return [];
+  }
+}
+
+async function detachPaymentMethod(paymentMethodId) {
+  if (!stripe || !paymentMethodId) return { ok: false };
+  try {
+    await stripe.paymentMethods.detach(paymentMethodId);
+    return { ok: true };
+  } catch (err) {
+    console.warn('detachPaymentMethod failed:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = {
   createPaymentIntent,
   retrievePaymentIntent,
   constructWebhookEvent,
+  listPaymentMethods,
+  detachPaymentMethod,
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   hasRealKey
 };

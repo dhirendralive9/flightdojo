@@ -1,0 +1,151 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+  <div>
+    <h1 class="account-h1">Saved travelers</h1>
+    <p class="account-sub">Save passenger details to speed up future bookings. You can also attach a passport copy.</p>
+  </div>
+  <button id="addTravelerBtn" class="btn-coral" style="padding:11px 18px;">
+    <i data-lucide="user-plus" style="width:14px;height:14px;"></i>
+    Add traveler
+  </button>
+</div>
+
+<% if (travelers.length === 0) { %>
+  <div class="account-empty">
+    <div class="account-empty-icon">
+      <i data-lucide="users" style="width:36px;height:36px;"></i>
+    </div>
+    <h2>No saved travelers yet</h2>
+    <p>Add yourself, your family, or anyone you book trips for.</p>
+  </div>
+<% } else { %>
+  <div class="travelers-grid" id="travelersGrid">
+    <% travelers.forEach(t => { %>
+      <div class="traveler-card" data-id="<%= t._id %>">
+        <div class="traveler-head">
+          <div class="traveler-avatar"><%= ((t.given_name || '?')[0] || '').toUpperCase() %></div>
+          <div>
+            <div class="traveler-name"><%= t.title || '' %> <%= t.given_name %> <%= t.family_name %></div>
+            <div class="traveler-meta">
+              <% if (t.relationship && t.relationship !== 'other') { %><span><%= t.relationship %></span> · <% } %>
+              <% if (t.born_on) { %><span>Born <%= t.born_on %></span><% } %>
+            </div>
+          </div>
+        </div>
+        <div class="traveler-actions">
+          <button class="traveler-edit" data-edit="<%= t._id %>"><i data-lucide="edit-2" style="width:12px;height:12px;"></i> Edit</button>
+          <button class="traveler-delete" data-delete="<%= t._id %>"><i data-lucide="trash-2" style="width:12px;height:12px;"></i> Remove</button>
+        </div>
+
+        <!-- Passport block -->
+        <div class="traveler-passport" data-passport-for="<%= t._id %>">
+          <div class="traveler-passport-label">Passport</div>
+          <div class="traveler-passport-state" data-passport-state="<%= t._id %>">Loading…</div>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+<% } %>
+
+<!-- Add/Edit modal -->
+<div id="travelerModal" class="modal" style="display:none;">
+  <div class="modal-backdrop" id="travelerModalBackdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="travelerModalTitle">Add a traveler</h3>
+      <button class="modal-close" id="travelerModalClose"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    </div>
+    <form id="travelerForm">
+      <input type="hidden" name="id"/>
+      <div class="bk-row bk-row-3">
+        <div class="bk-field bk-field-small">
+          <label class="bk-label">Title</label>
+          <select name="title" class="bk-input" required>
+            <option value="mr">Mr</option><option value="mrs">Mrs</option>
+            <option value="ms">Ms</option><option value="miss">Miss</option>
+            <option value="dr">Dr</option>
+          </select>
+        </div>
+        <div class="bk-field">
+          <label class="bk-label">First name</label>
+          <input type="text" name="given_name" class="bk-input" required/>
+        </div>
+        <div class="bk-field">
+          <label class="bk-label">Last name</label>
+          <input type="text" name="family_name" class="bk-input" required/>
+        </div>
+      </div>
+      <div class="bk-row bk-row-3">
+        <div class="bk-field">
+          <label class="bk-label">Date of birth</label>
+          <input type="date" name="born_on" class="bk-input"/>
+        </div>
+        <div class="bk-field">
+          <label class="bk-label">Gender</label>
+          <select name="gender" class="bk-input">
+            <option value="m">Male</option><option value="f">Female</option>
+          </select>
+        </div>
+        <div class="bk-field">
+          <label class="bk-label">Relationship</label>
+          <select name="relationship" class="bk-input">
+            <option value="self">Self</option>
+            <option value="spouse">Spouse</option>
+            <option value="child">Child</option>
+            <option value="parent">Parent</option>
+            <option value="sibling">Sibling</option>
+            <option value="friend">Friend</option>
+            <option value="colleague">Colleague</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="auth-msg" data-msg-for="traveler"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost-hero" id="travelerCancel">Cancel</button>
+        <button type="submit" class="btn-coral">
+          <span class="auth-submit-label">Save</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Passport upload modal -->
+<div id="passportModal" class="modal" style="display:none;">
+  <div class="modal-backdrop" id="passportModalBackdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Upload passport</h3>
+      <button class="modal-close" id="passportModalClose"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    </div>
+    <form id="passportForm" enctype="multipart/form-data">
+      <input type="hidden" name="traveler_id"/>
+      <div class="passport-upload-area" id="passportDropArea">
+        <i data-lucide="upload-cloud" style="width:28px;height:28px;color:var(--coral);"></i>
+        <p class="passport-upload-text">Tap to choose a file, or drag and drop</p>
+        <p class="passport-upload-sub">JPG, PNG, WebP, or PDF · max 8MB</p>
+        <input type="file" name="passport" id="passportInput" accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf" required style="display:none;"/>
+      </div>
+      <div id="passportFileName" class="passport-filename"></div>
+      <div class="passport-privacy-note">
+        <i data-lucide="shield" style="width:11px;height:11px;color:var(--coral);"></i>
+        Your file is stored securely <% if (process.env.PASSPORT_ENCRYPTION_KEY) { %>and encrypted at rest<% } %>. Only you can access it from your account.
+      </div>
+      <div class="auth-msg" data-msg-for="passport"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost-hero" id="passportCancel">Cancel</button>
+        <button type="submit" class="btn-coral">
+          <span class="auth-submit-label">Upload</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/js/account-travelers.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>
