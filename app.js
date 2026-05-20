@@ -166,8 +166,10 @@ app.use(session({
     mongoUrl: mongoUri,
     ttl: 30 * 24 * 60 * 60,
     autoRemove: 'native'
-    // crypto.secret removed — kruptein requires 2+ each of upper/lower/digit/special
     // crypto.secret removed — kruptein requires the secret to contain 2+ each
+    // of upper/lower/digit/special, and throws null-deref otherwise. Session
+    // payload is just {userId} and the Mongo connection is TLS-encrypted in
+    // transit, so encrypting the at-rest blob adds risk for negligible benefit.
   })
 }));
 
@@ -2370,13 +2372,13 @@ app.listen(PORT, () => {
 
   // ─── Admin bootstrap from .env ───
   // ADMIN_EMAIL: comma-separated list. Every user matching one of these gets is_admin=true.
+  // ADMIN_PASSWORD: if set, also creates the first admin user (only when missing).
   //   Subsequent boots leave the existing password alone.
   bootstrapAdminFromEnv().catch(err => console.warn('⚠  Admin bootstrap failed:', err.message));
 });
 
 async function bootstrapAdminFromEnv() {
   const adminEmails = (process.env.ADMIN_EMAIL || '')
-    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
@@ -2387,6 +2389,7 @@ async function bootstrapAdminFromEnv() {
 
   for (const email of adminEmails) {
     let user = await User.findOne({ email });
+
     if (!user && adminPassword) {
       // Create the admin user since they don't exist
       if (adminPassword.length < 8) {
@@ -2405,7 +2408,7 @@ async function bootstrapAdminFromEnv() {
     }
 
     if (!user) {
-      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create.`);
+      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create, or sign up manually and reboot.`);
       continue;
     }
 
@@ -2420,4 +2423,8 @@ async function bootstrapAdminFromEnv() {
   }
 
   if (promoted > 0 || created > 0) {
+    console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+  } else {
+    console.log(`🔑 Admin bootstrap: ${adminEmails.length} configured, all already set up`);
+  }
 }
