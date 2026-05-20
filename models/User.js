@@ -50,8 +50,87 @@ const userSchema = new mongoose.Schema({
   }],
 
   last_login_at: Date,
-  login_count: { type: Number, default: 0 }
+  login_count: { type: Number, default: 0 },
+
+  // ─── REFERRALS ───
+  // Auto-generated unique code (e.g. "DHIR-7K2X"). Set in pre-save hook below.
+  referral_code: { type: String, unique: true, sparse: true, index: true },
+  // Who referred this user (set on signup from ?ref= cookie)
+  referred_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  // Counter — how many people did this user successfully refer (i.e. they signed up)
+  referrals_count: { type: Number, default: 0 },
+
+  // ─── CREDITS ───
+  // Discount-balance in account currency (USD by default). Earned via referrals,
+  // applied to next booking. Stored as a fraction (e.g. 0.05 = 5%) per credit entry.
+  credits: [{
+    kind: { type: String, enum: ['referral_referrer', 'referral_referee', 'manual', 'compensation'] },
+    percent_off: Number,           // e.g. 0.05 for 5%. Capped per booking.
+    fixed_amount: Number,           // OR a fixed amount (USD) — leave 0 if using percent
+    currency: { type: String, default: 'USD' },
+    earned_from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    earned_from_order_ref: String,
+    earned_at: { type: Date, default: Date.now },
+    used_at: Date,
+    used_on_order_ref: String,
+    note: String
+  }]
 }, { timestamps: true });
+
+// Generate a referral code on first save
+function generateReferralCode(seed) {
+  const tail = require('crypto').randomBytes(2).toString('hex').toUpperCase();
+  const head = (seed || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4) || 'FLY';
+  return `${head}-${tail}`;
+}
+
+userSchema.pre('save', async function(next) {
+  if (!this.referral_code) {
+    // Use first 4 chars of email local-part as head, then random 4 hex
+    const localPart = (this.email || '').split('@')[0] || 'fly';
+    let attempts = 0;
+    while (attempts < 5) {
+      const code = generateReferralCode(localPart);
+      // Check for collision
+      const exists = await this.constructor.findOne({ referral_code: code });
+      if (!exists) {
+        this.referral_code = code;
+        break;
+      }
+      attempts++;
+    }
+    if (!this.referral_code) {
+      // Last-resort fully random
+      this.referral_code = require('crypto').randomBytes(5).toString('hex').toUpperCase();
+    }
+  }
+  next();
+});
+
+// Convenience: get unused credits sum (percent_off — caller picks the highest)
+userSchema.methods.getActiveCredits = function() {
+  return (this.credits || []).filter(c => !c.used_at);
+};
+
+// Find the best applicable discount for a booking total
+userSchema.methods.bestDiscountFor = function(bookingAmount) {
+  const active = this.getActiveCredits();
+  if (active.length === 0) return null;
+  // Calculate discount value for each, return highest
+  let best = null;
+  for (const credit of active) {
+    let amount = 0;
+    if (credit.percent_off) {
+      amount = bookingAmount * credit.percent_off;
+    } else if (credit.fixed_amount) {
+      amount = Math.min(credit.fixed_amount, bookingAmount);
+    }
+    if (!best || amount > best.amount) {
+      best = { credit, amount, percent_off: credit.percent_off, fixed_amount: credit.fixed_amount };
+    }
+  }
+  return best;
+};
 
 // ─── Password helpers ───
 userSchema.methods.setPassword = async function(plain) {
@@ -129,7 +208,11 @@ userSchema.methods.toSafeJSON = function() {
     saved_travelers: this.saved_travelers,
     email_verified_at: this.email_verified_at,
     last_login_at: this.last_login_at,
-    createdAt: this.createdAt
+    createdAt: this.createdAt,
+    referral_code: this.referral_code,
+    referred_by: this.referred_by,
+    referrals_count: this.referrals_count,
+    credits_active_count: (this.credits || []).filter(c => !c.used_at).length
   };
 };
 

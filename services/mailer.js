@@ -526,8 +526,79 @@ module.exports = {
   sendBookingPending,
   sendWelcome,
   sendMagicLink,
-  sendPasswordReset
+  sendPasswordReset,
+  sendPriceDropAlert,
+  sendGroupInvite
 };
+
+// ───────────────────────────────────────────────────────────
+// PRICE DROP ALERT
+// ───────────────────────────────────────────────────────────
+async function sendPriceDropAlert(user, payload) {
+  if (!transporter) {
+    console.log(`───── PRICE DROP (SMTP not configured) → ${user.email}: ${payload.route} ${payload.drop_percent}% off`);
+    return false;
+  }
+  const html = buildAccountEmail({
+    headline: `Price drop · ${payload.drop_percent}% off`,
+    subheadline: `Your saved trip just dropped to ${payload.currency} ${payload.new_price}`,
+    intro: `Great news${user.name ? ', ' + escapeHtml(user.name) : ''}. The fare for <strong>${escapeHtml(payload.route)}</strong> on <strong>${escapeHtml(payload.depart_date)}</strong>${payload.return_date ? ` (returning ${escapeHtml(payload.return_date)})` : ''} dropped from <strong>${payload.currency} ${payload.old_price}</strong> to <strong>${payload.currency} ${payload.new_price}</strong>. That's <strong>${payload.drop_percent}% less</strong> than your saved price.`,
+    ctaUrl: payload.book_url,
+    ctaLabel: 'Book this fare',
+    securityNote: 'Fares change quickly. This price was valid moments ago but may shift again — book soon to lock it in.'
+  });
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to: user.email,
+      subject: `Price drop · ${payload.route} · ${payload.drop_percent}% off`,
+      html,
+      text: `Price drop for ${payload.route} on ${payload.depart_date}:\n\nNew price: ${payload.currency} ${payload.new_price} (was ${payload.currency} ${payload.old_price}, ${payload.drop_percent}% off)\n\nBook: ${payload.book_url}\n\n— FlightDojo`,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: { 'X-Mailer': 'FlightDojo', 'Precedence': 'transactional' }
+    });
+    console.log('📬 ✓ Price drop sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Price drop send failed:', err.message);
+    return false;
+  }
+}
+
+// ───────────────────────────────────────────────────────────
+// GROUP INVITE
+// ───────────────────────────────────────────────────────────
+async function sendGroupInvite(email, fromUser, group, inviteUrl) {
+  if (!transporter) {
+    console.log(`───── GROUP INVITE (SMTP not configured) → ${email} for "${group.name}"`);
+    return false;
+  }
+  const senderName = fromUser.name || fromUser.email;
+  const html = buildAccountEmail({
+    headline: 'Group invite',
+    subheadline: `${escapeHtml(senderName)} invited you to a FlightDojo group`,
+    intro: `<strong>${escapeHtml(senderName)}</strong> invited you to join the group "<strong>${escapeHtml(group.name)}</strong>" on FlightDojo. Group members can share and view each other's trip bookings — useful for families, work travel, or trips you book on behalf of others.`,
+    ctaUrl: inviteUrl,
+    ctaLabel: 'Accept invite',
+    securityNote: 'This invitation expires in 14 days. If you don\'t have a FlightDojo account yet, you\'ll be asked to create one before joining.'
+  });
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to: email,
+      subject: `${senderName} invited you to "${group.name}" on FlightDojo`,
+      html,
+      text: `${senderName} invited you to join "${group.name}" on FlightDojo.\n\nAccept: ${inviteUrl}\n\nThis invite expires in 14 days.\n\n— FlightDojo`,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: { 'X-Mailer': 'FlightDojo', 'Precedence': 'transactional' }
+    });
+    console.log('📬 ✓ Group invite sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Group invite send failed:', err.message);
+    return false;
+  }
+}
 
 // ───────────────────────────────────────────────────────────
 // ACCOUNT-RELATED EMAILS

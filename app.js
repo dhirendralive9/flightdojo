@@ -157,6 +157,22 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ─── REFERRAL COOKIE ───
+// If ?ref=CODE is in the URL, store in session so we can apply it at signup time.
+app.use((req, res, next) => {
+  const ref = req.query.ref;
+  if (ref && typeof ref === 'string' && ref.length <= 32 && req.session) {
+    const clean = ref.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (clean.length >= 4) {
+      req.session.referral_code = clean;
+      res.locals.active_referral_code = clean;
+    }
+  } else if (req.session?.referral_code) {
+    res.locals.active_referral_code = req.session.referral_code;
+  }
+  next();
+});
+
 const navLinks = [
   { label: 'Home', href: '/' },
   { label: 'About', href: '/about' },
@@ -638,17 +654,38 @@ app.post('/api/book/intent', async (req, res) => {
     const { offer } = await getOffer(offer_id);
     if (!offer) return res.status(404).json({ error: 'Offer not found or expired' });
 
-    // Create Order in DB. Charge = flight price + add-ons.
+    // Create Order in DB. Charge = flight price + add-ons - applied discount.
     const reference = generateReference();
     const flightAmount = parseFloat(offer.total_amount);
-    const amount = flightAmount + parseFloat(addons.total_addons_amount);
+    const subtotal = flightAmount + parseFloat(addons.total_addons_amount);
     const currency = offer.total_currency || 'EUR';
+
+    // ─── APPLY CREDIT IF LOGGED IN AND HAS ONE ───
+    let amount = subtotal;
+    let appliedDiscount = null;
+    if (req.user) {
+      const discount = req.user.bestDiscountFor(subtotal);
+      if (discount && discount.amount > 0) {
+        const discountAmount = Math.round(discount.amount * 100) / 100;
+        amount = Math.max(0.01, subtotal - discountAmount); // never zero (Stripe min)
+        appliedDiscount = {
+          credit_id: discount.credit._id,
+          percent_off: discount.percent_off || null,
+          fixed_amount: discount.fixed_amount || null,
+          amount_off: discountAmount.toFixed(2),
+          note: discount.credit.note || (discount.percent_off ? `${(discount.percent_off * 100).toFixed(0)}% off` : `${discount.currency}${discount.fixed_amount} off`)
+        };
+      }
+    }
 
     let order;
     try {
       order = await Order.create({
         reference,
         status: 'awaiting_payment',
+        user_id: req.user?._id || null,
+        referred_by_user_id: req.user?.referred_by || null,
+        applied_discount: appliedDiscount,
         duffel_offer_id: offer_id,
         total_amount: amount.toFixed(2),
         total_currency: currency,
@@ -801,6 +838,71 @@ async function handleStripeWebhook(req, res) {
           order_reference: order.reference
         }).catch(() => {});
       }
+
+      // ─── MARK APPLIED CREDIT AS USED ───
+      if (order.user_id && order.applied_discount?.credit_id) {
+        try {
+          const user = await User.findById(order.user_id);
+          if (user) {
+            const credit = user.credits.id(order.applied_discount.credit_id);
+            if (credit && !credit.used_at) {
+              credit.used_at = new Date();
+              credit.used_on_order_ref = order.reference;
+              await user.save();
+              console.log(`💳 Credit ${credit._id} used by ${user.email} on order ${order.reference}`);
+            }
+          }
+        } catch (err) { console.warn('Mark credit used failed:', err.message); }
+      }
+
+      // ─── AWARD REFERRAL CREDITS ───
+      // If this is the user's first paid booking AND they were referred,
+      // award 5% to both referrer + referee for their NEXT booking.
+      if (order.user_id && order.referred_by_user_id) {
+        try {
+          const paidCount = await Order.countDocuments({
+            user_id: order.user_id,
+            status: { $in: ['booked', 'ticketed', 'completed'] },
+            _id: { $ne: order._id }
+          });
+          if (paidCount === 0) {
+            // First successful booking — fire the referral!
+            const referee = await User.findById(order.user_id);
+            const referrer = await User.findById(order.referred_by_user_id);
+            if (referee && referrer) {
+              // Give referee 5% off their NEXT booking
+              referee.credits.push({
+                kind: 'referral_referee',
+                percent_off: 0.05,
+                earned_from_user_id: referrer._id,
+                earned_from_order_ref: order.reference,
+                note: '5% off — thanks for joining via a friend\'s link'
+              });
+              await referee.save();
+
+              // Give referrer 5% off their next booking + increment counter
+              referrer.credits.push({
+                kind: 'referral_referrer',
+                percent_off: 0.05,
+                earned_from_user_id: referee._id,
+                earned_from_order_ref: order.reference,
+                note: `5% off — thanks for referring ${referee.email}`
+              });
+              referrer.referrals_count = (referrer.referrals_count || 0) + 1;
+              await referrer.save();
+
+              Notification.push(referrer._id, {
+                type: 'account',
+                title: 'You earned 5% off your next booking',
+                body: `${referee.name || referee.email} just made their first booking — you've earned 5% off your next trip.`,
+                link: '/account/refer'
+              }).catch(() => {});
+
+              console.log(`🎁 Referral fulfilled: ${referrer.email} ↔ ${referee.email}`);
+            }
+          }
+        } catch (err) { console.warn('Referral award failed:', err.message); }
+      }
     } catch (err) {
       console.error('Webhook processing error:', err);
     }
@@ -891,19 +993,39 @@ app.post('/api/account/signup', async (req, res) => {
   const result = await auth.signupWithPassword({ email, password, name, phone });
   if (!result.ok) return res.status(400).json({ error: result.error, existing: !!result.existing });
 
+  // ─── REFERRAL PROCESSING ───
+  // If user came via a referral link, record the relationship.
+  // The actual 5%-off credit is awarded after their first paid booking, NOT now —
+  // this prevents people from signing up multiple emails to farm credits.
+  let referredBy = null;
+  const refCode = req.session?.referral_code;
+  if (refCode && result.is_new) {
+    try {
+      const referrer = await User.findOne({ referral_code: refCode });
+      if (referrer && String(referrer._id) !== String(result.user._id)) {
+        result.user.referred_by = referrer._id;
+        await result.user.save();
+        referredBy = referrer;
+        console.log(`🎁 Signup ${result.user.email} referred by ${referrer.email}`);
+      }
+    } catch (err) {
+      console.warn('Referral processing failed:', err.message);
+    }
+  }
+
   req.session.userId = result.user._id;
   req.session.save(async () => {
-    // Send welcome email (fire-and-forget)
     const dashboardUrl = (process.env.BASE_URL || 'http://localhost:3000') + '/account';
     mailer.sendWelcome(result.user, dashboardUrl, result.linked_orders).catch(() => {});
 
-    // In-app welcome notification
     Notification.push(result.user._id, {
       type: 'account',
       title: 'Welcome to FlightDojo',
-      body: result.linked_orders > 0
-        ? `Your account is ready. We linked ${result.linked_orders} existing booking${result.linked_orders > 1 ? 's' : ''} to your dashboard.`
-        : 'Your account is ready. All future bookings will appear here automatically.',
+      body: referredBy
+        ? `Your account is ready. You'll get 5% off your first booking when you check out — thanks to ${referredBy.name || referredBy.email}.`
+        : (result.linked_orders > 0
+          ? `Your account is ready. We linked ${result.linked_orders} existing booking${result.linked_orders > 1 ? 's' : ''} to your dashboard.`
+          : 'Your account is ready. All future bookings will appear here automatically.'),
       link: '/account'
     }).catch(() => {});
 
@@ -1317,6 +1439,289 @@ app.get('/api/account/bookings/:reference/travel-day', auth.requireAuth, async (
   });
 });
 
+// ─── REFERRALS ────────────────────────────────────────────
+
+app.get('/account/refer', auth.requireAuth, async (req, res) => {
+  const baseUrl = process.env.BASE_URL || `http://${req.hostname}:3000`;
+  const referralUrl = `${baseUrl}/?ref=${req.user.referral_code}`;
+
+  // Active (unused) credits
+  const activeCredits = req.user.getActiveCredits();
+  // History — recent referrals you've completed
+  const completedReferrals = await User.find({ referred_by: req.user._id })
+    .select('email name createdAt')
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+
+  res.render('account/refer', {
+    title: 'Refer a friend — FlightDojo',
+    active_section: 'refer',
+    referral_url: referralUrl,
+    referral_code: req.user.referral_code,
+    referrals_count: req.user.referrals_count || 0,
+    active_credits: activeCredits,
+    completed_referrals: completedReferrals
+  });
+});
+
+// ─── SAVED SEARCHES ──────────────────────────────────────
+
+const SavedSearch = require('./models/SavedSearch');
+
+app.get('/account/saved-searches', auth.requireAuth, async (req, res) => {
+  const searches = await SavedSearch.find({
+    user_id: req.user._id,
+    archived_at: null
+  }).sort({ createdAt: -1 }).limit(50).lean();
+
+  res.render('account/saved-searches', {
+    title: 'Saved searches — FlightDojo',
+    active_section: 'saved-searches',
+    searches
+  });
+});
+
+app.post('/api/account/saved-searches', auth.requireAuth, async (req, res) => {
+  const { origin, destination, depart_date, return_date, passengers, cabin_class, baseline_price, baseline_currency } = req.body || {};
+  if (!origin || !destination || !depart_date) {
+    return res.status(400).json({ error: 'Origin, destination, and departure date are required.' });
+  }
+
+  // Look up airport names for nicer dashboard display
+  const originAp = airportsService.byIata(String(origin).toUpperCase());
+  const destAp = airportsService.byIata(String(destination).toUpperCase());
+
+  try {
+    const search = await SavedSearch.create({
+      user_id: req.user._id,
+      origin: String(origin).toUpperCase(),
+      destination: String(destination).toUpperCase(),
+      depart_date,
+      return_date: return_date || null,
+      passengers: parseInt(passengers, 10) || 1,
+      cabin_class: cabin_class || 'economy',
+      origin_name: originAp?.city || originAp?.name || '',
+      destination_name: destAp?.city || destAp?.name || '',
+      baseline_price: baseline_price ? parseFloat(baseline_price) : null,
+      baseline_currency: baseline_currency || 'USD',
+      current_price: baseline_price ? parseFloat(baseline_price) : null,
+      current_currency: baseline_currency || 'USD',
+      last_checked_at: new Date()
+    });
+    res.json({ ok: true, id: search._id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/account/saved-searches/:id', auth.requireAuth, async (req, res) => {
+  await SavedSearch.updateOne(
+    { _id: req.params.id, user_id: req.user._id },
+    { archived_at: new Date(), active: false }
+  );
+  res.json({ ok: true });
+});
+
+// Manual "check now" — re-run search via Duffel and update price
+app.post('/api/account/saved-searches/:id/check', auth.requireAuth, async (req, res) => {
+  const search = await SavedSearch.findOne({ _id: req.params.id, user_id: req.user._id });
+  if (!search) return res.status(404).json({ error: 'Not found' });
+
+  try {
+    const result = await searchOffers({
+      origin: search.origin,
+      destination: search.destination,
+      depart_date: search.depart_date,
+      return_date: search.return_date,
+      passengers: search.passengers,
+      cabin_class: search.cabin_class
+    });
+    const cheapest = (result.offers || []).reduce((min, o) =>
+      !min || parseFloat(o.total_amount) < parseFloat(min.total_amount) ? o : min, null);
+
+    if (!cheapest) {
+      search.last_checked_at = new Date();
+      await search.save();
+      return res.json({ ok: true, no_results: true });
+    }
+
+    const newPrice = parseFloat(cheapest.total_amount);
+    const oldPrice = search.current_price || search.baseline_price || newPrice;
+    const dropPct = oldPrice > 0 ? (oldPrice - newPrice) / oldPrice : 0;
+
+    search.current_price = newPrice;
+    search.current_currency = cheapest.total_currency;
+    search.last_offer_id = cheapest.id;
+    search.last_checked_at = new Date();
+    if (!search.baseline_price) {
+      search.baseline_price = newPrice;
+      search.baseline_currency = cheapest.total_currency;
+    }
+    await search.save();
+
+    res.json({
+      ok: true,
+      price: newPrice,
+      currency: cheapest.total_currency,
+      old_price: oldPrice,
+      drop_percent: Math.round(dropPct * 100),
+      offer_id: cheapest.id
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GROUPS ──────────────────────────────────────────────
+
+const Group = require('./models/Group');
+
+app.get('/account/groups', auth.requireAuth, async (req, res) => {
+  const groups = await Group.find({
+    $or: [
+      { owner_id: req.user._id },
+      { 'members.user_id': req.user._id }
+    ]
+  }).sort({ createdAt: -1 }).lean();
+
+  res.render('account/groups', {
+    title: 'Groups — FlightDojo',
+    active_section: 'groups',
+    groups
+  });
+});
+
+app.get('/account/groups/:id', auth.requireAuth, async (req, res) => {
+  const group = await Group.findOne({
+    _id: req.params.id,
+    $or: [
+      { owner_id: req.user._id },
+      { 'members.user_id': req.user._id }
+    ]
+  }).populate('members.user_id', 'name email').lean();
+  if (!group) return res.status(404).render('404', { title: '404 — FlightDojo' });
+
+  // All trips for this group
+  const memberIds = group.members.map(m => m.user_id?._id).filter(Boolean);
+  const orders = await Order.find({
+    $or: [
+      { group_id: group._id },
+      { user_id: { $in: memberIds } }
+    ]
+  }).sort({ createdAt: -1 }).limit(50).lean();
+
+  res.render('account/group-detail', {
+    title: `${group.name} — FlightDojo`,
+    active_section: 'groups',
+    group,
+    orders,
+    is_owner: String(group.owner_id) === String(req.user._id)
+  });
+});
+
+app.post('/api/account/groups', auth.requireAuth, async (req, res) => {
+  const { name, icon } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Group name is required.' });
+
+  const group = await Group.create({
+    name: String(name).trim().slice(0, 80),
+    icon: icon ? String(icon).slice(0, 8) : '👥',
+    owner_id: req.user._id,
+    members: [{ user_id: req.user._id, role: 'owner' }]
+  });
+  res.json({ ok: true, id: group._id });
+});
+
+app.delete('/api/account/groups/:id', auth.requireAuth, async (req, res) => {
+  const group = await Group.findOne({ _id: req.params.id, owner_id: req.user._id });
+  if (!group) return res.status(404).json({ error: 'Group not found or you are not the owner.' });
+
+  // Detach any orders that were linked to this group (don't delete the orders!)
+  await Order.updateMany({ group_id: group._id }, { group_id: null });
+  await Group.deleteOne({ _id: group._id });
+  res.json({ ok: true });
+});
+
+app.post('/api/account/groups/:id/invite', auth.requireAuth, async (req, res) => {
+  const { email, role } = req.body || {};
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email required.' });
+  }
+  const group = await Group.findOne({ _id: req.params.id, owner_id: req.user._id });
+  if (!group) return res.status(404).json({ error: 'Group not found or you are not the owner.' });
+
+  // Check if email is already a member
+  const existingUser = await User.findOne({ email: String(email).toLowerCase().trim() });
+  if (existingUser && group.members.find(m => String(m.user_id) === String(existingUser._id))) {
+    return res.status(400).json({ error: 'This person is already in the group.' });
+  }
+
+  const token = group.addInvite(email, req.user._id, role === 'viewer' ? 'viewer' : 'member');
+  await group.save();
+
+  // Send invite email
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+  const inviteUrl = `${baseUrl}/account/groups/join/${token}`;
+  mailer.sendGroupInvite(email, req.user, group, inviteUrl).catch(() => {});
+
+  res.json({ ok: true });
+});
+
+app.delete('/api/account/groups/:id/invites/:inviteId', auth.requireAuth, async (req, res) => {
+  const group = await Group.findOne({ _id: req.params.id, owner_id: req.user._id });
+  if (!group) return res.status(404).json({ error: 'Not found' });
+  const invite = group.invites.id(req.params.inviteId);
+  if (invite) invite.revoked_at = new Date();
+  await group.save();
+  res.json({ ok: true });
+});
+
+app.delete('/api/account/groups/:id/members/:memberId', auth.requireAuth, async (req, res) => {
+  const group = await Group.findOne({ _id: req.params.id, owner_id: req.user._id });
+  if (!group) return res.status(404).json({ error: 'Not found' });
+  if (String(req.params.memberId) === String(group.owner_id)) {
+    return res.status(400).json({ error: 'Cannot remove the owner. Delete the group instead.' });
+  }
+  const member = group.members.id(req.params.memberId);
+  if (member) member.deleteOne();
+  await group.save();
+  res.json({ ok: true });
+});
+
+// Accept a group invite via email link
+app.get('/account/groups/join/:token', async (req, res) => {
+  // If not logged in, send to signup with redirect back
+  if (!req.user) {
+    return res.redirect(`/signup?next=${encodeURIComponent('/account/groups/join/' + req.params.token)}`);
+  }
+  // Find the group with this invite
+  const group = await Group.findOne({ 'invites.token': req.params.token });
+  if (!group) {
+    return res.render('group-invite-result', {
+      title: 'Group invite — FlightDojo',
+      success: false,
+      message: 'This invitation link is invalid or has expired.'
+    });
+  }
+  const accepted = group.acceptInvite(req.params.token, req.user._id);
+  if (!accepted) {
+    return res.render('group-invite-result', {
+      title: 'Group invite — FlightDojo',
+      success: false,
+      message: 'This invitation has already been used or has expired.'
+    });
+  }
+  await group.save();
+  Notification.push(req.user._id, {
+    type: 'account',
+    title: `You joined "${group.name}"`,
+    body: `You can now view trips shared in this group.`,
+    link: `/account/groups/${group._id}`
+  }).catch(() => {});
+  res.redirect(`/account/groups/${group._id}`);
+});
+
 // ─── STATIC PAGES ────────────────────────────────────────
 app.get('/about', (req, res) => res.render('about', { title: 'About — FlightDojo' }));
 app.get('/careers', (req, res) => res.render('careers', { title: 'Careers — FlightDojo' }));
@@ -1338,4 +1743,12 @@ app.listen(PORT, () => {
   console.log(`Duffel: ${process.env.DUFFEL_ACCESS_TOKEN && !process.env.DUFFEL_ACCESS_TOKEN.includes('REPLACE_ME') ? 'LIVE' : 'MOCK'}`);
   console.log(`Stripe: ${stripeService.hasRealKey ? 'LIVE' : 'MOCK'}`);
   console.log(`ProxyCheck: ${process.env.PROXYCHECK_API_KEY ? 'ENABLED' : 'PERMISSIVE (no key)'}`);
+
+  // Start background jobs
+  try {
+    const cronService = require('./services/cron');
+    cronService.startCron();
+  } catch (err) {
+    console.warn('⚠  Cron not started:', err.message);
+  }
 });

@@ -114,6 +114,21 @@ const orderSchema = new mongoose.Schema({
 
   // Linked user (set on signup or future order with matching email)
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
+  // Optional group (so all group members can see this trip in their dashboard)
+  group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', index: true, default: null },
+
+  // Referral source — set when user used a ref code during signup AND this is
+  // their first booking
+  referred_by_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+
+  // Applied discount (credit used at checkout)
+  applied_discount: {
+    credit_id: mongoose.Schema.Types.ObjectId,
+    percent_off: Number,
+    fixed_amount: Number,
+    amount_off: String,
+    note: String
+  },
 
   // Duffel
   duffel_offer_id: { type: String, index: true },

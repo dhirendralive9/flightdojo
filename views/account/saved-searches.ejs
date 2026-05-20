@@ -1,0 +1,94 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header">
+  <h1 class="account-h1">Saved searches</h1>
+  <p class="account-sub">We check these routes daily and email you when prices drop 10% or more.</p>
+</div>
+
+<% if (searches.length === 0) { %>
+  <div class="account-empty">
+    <div class="account-empty-icon">
+      <i data-lucide="star" style="width:36px;height:36px;"></i>
+    </div>
+    <h2>No saved searches yet</h2>
+    <p>Run a flight search, then tap the star icon next to a route to start watching it.</p>
+    <a href="/" class="btn-coral" style="margin-top:16px;">
+      <i data-lucide="search" style="width:14px;height:14px;"></i>
+      Search flights
+    </a>
+  </div>
+<% } else { %>
+  <div class="saved-search-grid">
+    <% searches.forEach(s => { %>
+      <% const dropPct = s.baseline_price && s.current_price ? Math.round(((s.baseline_price - s.current_price) / s.baseline_price) * 100) : 0; %>
+      <% const isUp = dropPct < -2; %>
+      <% const isDown = dropPct > 2; %>
+      <div class="saved-search-card" data-id="<%= s._id %>">
+        <div class="saved-search-route">
+          <span class="saved-search-iata"><%= s.origin %></span>
+          <i data-lucide="arrow-right" style="width:14px;height:14px;color:var(--coral);"></i>
+          <span class="saved-search-iata"><%= s.destination %></span>
+          <% if (s.return_date) { %>
+            <i data-lucide="repeat" style="width:11px;height:11px;color:var(--text-muted);margin-left:6px;"></i>
+          <% } %>
+        </div>
+        <div class="saved-search-cities">
+          <%= s.origin_name || s.origin %> → <%= s.destination_name || s.destination %>
+        </div>
+        <div class="saved-search-meta">
+          <span><i data-lucide="calendar" style="width:11px;height:11px;"></i> <%= s.depart_date %><%= s.return_date ? ' → ' + s.return_date : '' %></span>
+          <span><i data-lucide="users" style="width:11px;height:11px;"></i> <%= s.passengers %> pax</span>
+        </div>
+
+        <div class="saved-search-price-row">
+          <div>
+            <div class="saved-search-price-label">Latest</div>
+            <div class="saved-search-price">
+              <%= s.current_currency || s.baseline_currency || 'USD' %>
+              <strong><%= s.current_price ? Math.round(s.current_price) : '—' %></strong>
+            </div>
+            <% if (s.baseline_price && s.current_price && s.baseline_price !== s.current_price) { %>
+              <div class="saved-search-price-base">was <%= s.baseline_currency %> <%= Math.round(s.baseline_price) %></div>
+            <% } %>
+          </div>
+          <% if (isDown) { %>
+            <div class="saved-search-pct saved-search-pct-down">
+              <i data-lucide="trending-down" style="width:12px;height:12px;"></i>
+              <%= dropPct %>%
+            </div>
+          <% } else if (isUp) { %>
+            <div class="saved-search-pct saved-search-pct-up">
+              <i data-lucide="trending-up" style="width:12px;height:12px;"></i>
+              <%= Math.abs(dropPct) %>%
+            </div>
+          <% } %>
+        </div>
+
+        <div class="saved-search-actions">
+          <% if (s.last_offer_id) { %>
+            <a href="/offer/<%= s.last_offer_id %>" class="btn-coral saved-search-btn-book">
+              <i data-lucide="ticket" style="width:12px;height:12px;"></i>
+              Book this
+            </a>
+          <% } %>
+          <button class="saved-search-check" data-check="<%= s._id %>">
+            <i data-lucide="refresh-cw" style="width:11px;height:11px;"></i>
+            Check now
+          </button>
+          <button class="saved-search-remove" data-remove="<%= s._id %>" aria-label="Remove">
+            <i data-lucide="trash-2" style="width:11px;height:11px;"></i>
+          </button>
+        </div>
+        <% if (s.last_checked_at) { %>
+          <div class="saved-search-last">Last checked <%= new Date(s.last_checked_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) %></div>
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+<% } %>
+
+<script src="/js/account-saved-searches.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

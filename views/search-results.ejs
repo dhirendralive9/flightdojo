@@ -33,6 +33,25 @@
       <% } %>
       <span><i data-lucide="users" style="width:13px;height:13px;"></i> <%= query.passengers %> passenger<%= query.passengers > 1 ? 's' : '' %></span>
       <span><i data-lucide="armchair" style="width:13px;height:13px;"></i> <%= query.cabin.charAt(0).toUpperCase() + query.cabin.slice(1) %></span>
+      <% if (typeof user !== 'undefined' && user) { %>
+        <button id="saveSearchBtn" class="save-search-btn"
+                data-origin="<%= query.origin %>"
+                data-destination="<%= query.destination %>"
+                data-depart="<%= query.depart %>"
+                data-return="<%= query.ret || '' %>"
+                data-passengers="<%= query.passengers %>"
+                data-cabin="<%= query.cabin %>"
+                data-baseline-price="<%= offers && offers[0] ? offers[0].total_amount : '' %>"
+                data-baseline-currency="<%= offers && offers[0] ? offers[0].total_currency : 'USD' %>">
+          <i data-lucide="star" style="width:13px;height:13px;"></i>
+          <span>Watch this route</span>
+        </button>
+      <% } else { %>
+        <a href="/login?next=<%= encodeURIComponent(currentPath + (query ? '?origin=' + query.origin : '')) %>" class="save-search-btn save-search-btn-disabled" title="Sign in to watch routes">
+          <i data-lucide="star" style="width:13px;height:13px;"></i>
+          <span>Sign in to watch</span>
+        </a>
+      <% } %>
     </div>
   </div>
 </div>
@@ -140,4 +159,5 @@
   <% } %>
 </div>
 
+<script src="/js/save-search.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
 <%- include('partials/footer') %>

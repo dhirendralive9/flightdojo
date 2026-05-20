@@ -1,0 +1,119 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<a href="/account/groups" class="back-link">
+  <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
+  Back to groups
+</a>
+
+<div class="account-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <div class="group-icon-large"><%= group.icon || '👥' %></div>
+    <div>
+      <h1 class="account-h1" style="margin:0 0 4px;"><%= group.name %></h1>
+      <p class="account-sub" style="margin:0;"><%= group.members.length %> member<%= group.members.length === 1 ? '' : 's' %> · <%= orders.length %> shared trip<%= orders.length === 1 ? '' : 's' %></p>
+    </div>
+  </div>
+  <% if (is_owner) { %>
+    <div style="display:flex;gap:8px;">
+      <button id="inviteMemberBtn" class="btn-coral" style="padding:10px 16px;">
+        <i data-lucide="user-plus" style="width:13px;height:13px;"></i>
+        Invite
+      </button>
+      <button id="deleteGroupBtn" class="btn-ghost-hero" style="padding:10px 14px;" data-group-id="<%= group._id %>">
+        <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+        Delete group
+      </button>
+    </div>
+  <% } %>
+</div>
+
+<!-- Members -->
+<div class="trip-detail-card">
+  <div class="trip-card-title">Members</div>
+  <div class="group-members-list">
+    <% group.members.forEach(m => { %>
+      <div class="group-member">
+        <div class="group-member-avatar"><%= ((m.user_id?.name || m.user_id?.email || '?')[0] || '').toUpperCase() %></div>
+        <div class="group-member-info">
+          <div class="group-member-name">
+            <%= m.user_id?.name || m.user_id?.email || 'Unknown' %>
+            <% if (m.role === 'owner') { %><span class="group-member-role">Owner</span><% } %>
+          </div>
+          <div class="group-member-meta">Joined <%= new Date(m.joined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></div>
+        </div>
+        <% if (is_owner && m.role !== 'owner') { %>
+          <button class="group-member-remove" data-remove-member="<%= m._id %>" data-group-id="<%= group._id %>" aria-label="Remove">
+            <i data-lucide="x" style="width:13px;height:13px;"></i>
+          </button>
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+
+  <% const pendingInvites = (group.invites || []).filter(i => !i.accepted_at && !i.revoked_at && new Date(i.expires_at) > new Date()); %>
+  <% if (pendingInvites.length > 0) { %>
+    <div class="group-invites-title">Pending invitations</div>
+    <% pendingInvites.forEach(i => { %>
+      <div class="group-invite-row">
+        <div>
+          <div class="group-invite-email"><%= i.email %></div>
+          <div class="group-invite-meta">Invited <%= new Date(i.invited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %> · expires <%= new Date(i.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %></div>
+        </div>
+        <% if (is_owner) { %>
+          <button class="group-invite-revoke" data-revoke-invite="<%= i._id %>" data-group-id="<%= group._id %>">Revoke</button>
+        <% } %>
+      </div>
+    <% }) %>
+  <% } %>
+</div>
+
+<!-- Shared trips -->
+<% if (orders.length > 0) { %>
+  <h3 class="refer-section-title" style="margin-top:24px;">Shared trips</h3>
+  <div class="account-trips-grid">
+    <% orders.forEach(o => { %>
+      <%- include('_trip-card', { o: o }) %>
+    <% }) %>
+  </div>
+<% } else { %>
+  <div class="account-empty" style="margin-top:24px;">
+    <h2>No trips yet</h2>
+    <p>Trips booked by group members will appear here.</p>
+  </div>
+<% } %>
+
+<!-- Invite modal -->
+<div id="inviteModal" class="modal" style="display:none;">
+  <div class="modal-backdrop" id="inviteModalBackdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Invite to "<%= group.name %>"</h3>
+      <button class="modal-close" id="inviteModalClose"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    </div>
+    <form id="inviteForm" data-group-id="<%= group._id %>">
+      <div class="bk-field">
+        <label class="bk-label">Email address</label>
+        <input type="email" name="email" class="bk-input" required placeholder="friend@example.com"/>
+        <div class="bk-field-hint">They'll get an email with a link to join. Invites expire after 14 days.</div>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">Role</label>
+        <select name="role" class="bk-input">
+          <option value="member">Member (can see all group trips)</option>
+          <option value="viewer">Viewer (read-only)</option>
+        </select>
+      </div>
+      <div class="auth-msg" data-msg-for="invite"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost-hero" id="inviteCancel">Cancel</button>
+        <button type="submit" class="btn-coral"><span class="auth-submit-label">Send invite</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/js/account-groups.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

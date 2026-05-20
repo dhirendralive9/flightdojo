@@ -1,0 +1,117 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header">
+  <h1 class="account-h1">Refer a friend</h1>
+  <p class="account-sub">Give 5% off, get 5% off. Share your link, and you'll both save when they take their first trip.</p>
+</div>
+
+<!-- Hero: share link + how it works -->
+<div class="refer-hero">
+  <div class="refer-hero-icon"><i data-lucide="gift" style="width:32px;height:32px;"></i></div>
+  <div class="refer-hero-text">
+    <h2>Your link</h2>
+    <div class="refer-link-row">
+      <input type="text" id="referralLink" readonly value="<%= referral_url %>"/>
+      <button id="copyReferralBtn" class="btn-coral refer-copy-btn">
+        <i data-lucide="copy" style="width:13px;height:13px;"></i>
+        <span id="copyBtnLabel">Copy</span>
+      </button>
+    </div>
+    <div class="refer-share-row">
+      <a href="mailto:?subject=Try FlightDojo&body=I've been booking flights through FlightDojo. Sign up with my link and we both get 5%25 off our next trip: <%= encodeURIComponent(referral_url) %>" class="refer-share-btn">
+        <i data-lucide="mail" style="width:13px;height:13px;"></i> Email
+      </a>
+      <a href="https://wa.me/?text=Try%20FlightDojo%20with%20my%20link%20and%20we%20both%20get%205%25%20off%3A%20<%= encodeURIComponent(referral_url) %>" target="_blank" rel="noopener" class="refer-share-btn">
+        <i data-lucide="message-circle" style="width:13px;height:13px;"></i> WhatsApp
+      </a>
+      <a href="https://twitter.com/intent/tweet?text=Try%20FlightDojo%20with%20my%20link%20and%20we%20both%20get%205%25%20off%3A%20<%= encodeURIComponent(referral_url) %>" target="_blank" rel="noopener" class="refer-share-btn">
+        <i data-lucide="twitter" style="width:13px;height:13px;"></i> X / Twitter
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- How it works -->
+<div class="refer-how">
+  <div class="refer-step">
+    <div class="refer-step-num">1</div>
+    <div>
+      <div class="refer-step-title">Share your link</div>
+      <div class="refer-step-sub">Send it to friends or family planning a trip.</div>
+    </div>
+  </div>
+  <div class="refer-step">
+    <div class="refer-step-num">2</div>
+    <div>
+      <div class="refer-step-title">They sign up &amp; book</div>
+      <div class="refer-step-sub">When they take their first FlightDojo trip, the reward unlocks.</div>
+    </div>
+  </div>
+  <div class="refer-step">
+    <div class="refer-step-num">3</div>
+    <div>
+      <div class="refer-step-title">You both save 5%</div>
+      <div class="refer-step-sub">Each of you gets 5% off your next booking, applied automatically at checkout.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="refer-stats">
+  <div class="refer-stat">
+    <div class="refer-stat-num"><%= referrals_count %></div>
+    <div class="refer-stat-label">Friends referred</div>
+  </div>
+  <div class="refer-stat">
+    <div class="refer-stat-num"><%= active_credits.length %></div>
+    <div class="refer-stat-label">Active credits</div>
+  </div>
+  <div class="refer-stat">
+    <div class="refer-stat-num"><%= referral_code %></div>
+    <div class="refer-stat-label">Your code</div>
+  </div>
+</div>
+
+<!-- Active credits list -->
+<% if (active_credits.length > 0) { %>
+  <h3 class="refer-section-title">Your unused credits</h3>
+  <div class="refer-credits-list">
+    <% active_credits.forEach(c => { %>
+      <div class="refer-credit-card">
+        <div class="refer-credit-icon">
+          <i data-lucide="<%= c.kind === 'referral_referrer' ? 'gift' : c.kind === 'referral_referee' ? 'sparkles' : 'tag' %>" style="width:18px;height:18px;color:var(--coral);"></i>
+        </div>
+        <div class="refer-credit-body">
+          <div class="refer-credit-title">
+            <%= c.percent_off ? Math.round(c.percent_off * 100) + '% off' : (c.currency || 'USD') + ' ' + c.fixed_amount + ' off' %>
+          </div>
+          <div class="refer-credit-sub"><%= c.note || 'Credit on file' %></div>
+          <div class="refer-credit-meta">Earned <%= new Date(c.earned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></div>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+  <p class="refer-credit-note">The largest applicable credit is automatically applied at checkout on your next booking.</p>
+<% } %>
+
+<!-- Completed referrals -->
+<% if (completed_referrals.length > 0) { %>
+  <h3 class="refer-section-title">Friends you've referred</h3>
+  <div class="refer-people-list">
+    <% completed_referrals.forEach(r => { %>
+      <div class="refer-person">
+        <div class="refer-person-avatar"><%= ((r.name || r.email)[0] || '?').toUpperCase() %></div>
+        <div class="refer-person-info">
+          <div class="refer-person-name"><%= r.name || r.email %></div>
+          <div class="refer-person-meta">Joined <%= new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></div>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+<% } %>
+
+<script src="/js/account-refer.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

@@ -1,0 +1,81 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;">
+  <div>
+    <h1 class="account-h1">Groups</h1>
+    <p class="account-sub">Share trips with family, partners, or teams. Anyone in a group sees all the bookings.</p>
+  </div>
+  <button id="addGroupBtn" class="btn-coral" style="padding:11px 18px;">
+    <i data-lucide="plus" style="width:14px;height:14px;"></i>
+    New group
+  </button>
+</div>
+
+<% if (groups.length === 0) { %>
+  <div class="account-empty">
+    <div class="account-empty-icon">
+      <i data-lucide="users" style="width:36px;height:36px;"></i>
+    </div>
+    <h2>No groups yet</h2>
+    <p>Create a group to share trips with people you book for or travel with.</p>
+  </div>
+<% } else { %>
+  <div class="groups-grid">
+    <% groups.forEach(g => { %>
+      <a href="/account/groups/<%= g._id %>" class="group-card">
+        <div class="group-icon"><%= g.icon || '👥' %></div>
+        <div class="group-info">
+          <div class="group-name"><%= g.name %></div>
+          <div class="group-meta">
+            <%= g.members.length %> member<%= g.members.length === 1 ? '' : 's' %>
+            <% if (g.invites && g.invites.filter(i => !i.accepted_at && !i.revoked_at).length > 0) { %>
+              · <%= g.invites.filter(i => !i.accepted_at && !i.revoked_at).length %> pending invite<%= g.invites.filter(i => !i.accepted_at && !i.revoked_at).length === 1 ? '' : 's' %>
+            <% } %>
+          </div>
+        </div>
+        <i data-lucide="chevron-right" style="width:18px;height:18px;color:var(--text-muted);"></i>
+      </a>
+    <% }) %>
+  </div>
+<% } %>
+
+<!-- Add group modal -->
+<div id="groupModal" class="modal" style="display:none;">
+  <div class="modal-backdrop" id="groupModalBackdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Create a group</h3>
+      <button class="modal-close" id="groupModalClose"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    </div>
+    <form id="groupForm">
+      <div class="bk-row bk-row-2">
+        <div class="bk-field">
+          <label class="bk-label">Group name</label>
+          <input type="text" name="name" class="bk-input" required placeholder="e.g. Family travel"/>
+        </div>
+        <div class="bk-field bk-field-small">
+          <label class="bk-label">Icon</label>
+          <select name="icon" class="bk-input">
+            <option value="👥">👥 People</option>
+            <option value="👨‍👩‍👧">👨‍👩‍👧 Family</option>
+            <option value="💼">💼 Work</option>
+            <option value="🎒">🎒 Backpack</option>
+            <option value="❤️">❤️ Heart</option>
+            <option value="✈️">✈️ Plane</option>
+          </select>
+        </div>
+      </div>
+      <div class="auth-msg" data-msg-for="group"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost-hero" id="groupCancel">Cancel</button>
+        <button type="submit" class="btn-coral"><span class="auth-submit-label">Create</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/js/account-groups.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

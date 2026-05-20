@@ -19,13 +19,25 @@
           <span class="nav-badge"><%= unread_notifications %></span>
         <% } %>
       </a>
-      <a href="/account/travelers" class="<%= active_section === 'travelers' ? 'active' : '' %>">
+      <a href="/account/saved-searches" class="<%= active_section === 'saved-searches' ? 'active' : '' %>">
+        <i data-lucide="star" style="width:14px;height:14px;"></i>
+        Saved searches
+      </a>
+      <a href="/account/groups" class="<%= active_section === 'groups' ? 'active' : '' %>">
         <i data-lucide="users" style="width:14px;height:14px;"></i>
+        Groups
+      </a>
+      <a href="/account/travelers" class="<%= active_section === 'travelers' ? 'active' : '' %>">
+        <i data-lucide="user-check" style="width:14px;height:14px;"></i>
         Travelers
       </a>
       <a href="/account/payment-methods" class="<%= active_section === 'payment-methods' ? 'active' : '' %>">
         <i data-lucide="credit-card" style="width:14px;height:14px;"></i>
         Payment methods
+      </a>
+      <a href="/account/refer" class="<%= active_section === 'refer' ? 'active' : '' %> nav-refer">
+        <i data-lucide="gift" style="width:14px;height:14px;"></i>
+        Refer a friend
       </a>
       <a href="/account/settings" class="<%= active_section === 'settings' ? 'active' : '' %>">
         <i data-lucide="settings" style="width:14px;height:14px;"></i>
