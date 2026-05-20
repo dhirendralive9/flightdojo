@@ -37,6 +37,70 @@ if (configured) {
   console.warn('   Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in .env');
 }
 
+// Lazy-load EmailLog to avoid circular dependency at module load time.
+// Mongoose will register the model on first require — we need it on demand.
+function getEmailLog() {
+  try { return require('../models/EmailLog'); }
+  catch (e) { return null; }
+}
+
+// Centralized email send that logs every attempt to MongoDB.
+// All public mailer functions should call this rather than transporter.sendMail directly.
+async function sendAndLog({ to, subject, html, text, headers, replyTo, template, user_id, order_reference, preview }) {
+  const EmailLog = getEmailLog();
+  let logEntry = null;
+  try {
+    if (EmailLog) {
+      logEntry = await EmailLog.create({
+        to, from, subject,
+        template: template || null,
+        user_id: user_id || null,
+        order_reference: order_reference || null,
+        status: 'queued',
+        preview: (preview || (text || '').replace(/\s+/g, ' ').slice(0, 200))
+      });
+    }
+  } catch (err) { /* DB optional */ }
+
+  if (!transporter) {
+    console.log(`───── ${subject} (SMTP not configured) → ${to}`);
+    if (logEntry) {
+      logEntry.status = 'failed';
+      logEntry.error = 'SMTP not configured';
+      await logEntry.save().catch(() => {});
+    }
+    return { ok: false, reason: 'no_transport', logId: logEntry?._id };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from, to, subject, html, text,
+      replyTo: replyTo || process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: headers || { 'X-Mailer': 'FlightDojo', 'Precedence': 'transactional' }
+    });
+    console.log(`📬 ✓ ${template || 'email'} accepted by SMTP → ${to} · ${info.messageId}`);
+
+    if (logEntry) {
+      const rejected = Array.isArray(info.rejected) && info.rejected.length > 0;
+      logEntry.status = rejected ? 'rejected' : 'accepted';
+      logEntry.message_id = info.messageId || '';
+      logEntry.smtp_response = info.response || '';
+      if (rejected) logEntry.error = 'Recipients rejected: ' + info.rejected.join(', ');
+      await logEntry.save().catch(() => {});
+    }
+    return { ok: true, info, logId: logEntry?._id };
+  } catch (err) {
+    console.error(`📬 ✗ ${template || 'email'} send FAILED → ${to}:`, err.message);
+    if (logEntry) {
+      logEntry.status = 'failed';
+      logEntry.error = err.message;
+      logEntry.smtp_response = err.response || '';
+      await logEntry.save().catch(() => {});
+    }
+    return { ok: false, error: err.message, logId: logEntry?._id };
+  }
+}
+
 // Inline-styled HTML (most email clients strip <style> tags).
 // Palette mirrors site: coral #FF5038, charcoal #1a1a1a, parchment #F4F1EB.
 function brandedEmail({ subject, preheader, contentBlocks, footerText }) {
@@ -332,63 +396,26 @@ async function sendBookingConfirmation(order) {
     return false;
   }
 
-  const subject = `Booking Confirmed · ${order.booking_reference || order.reference}`;
-  console.log(`📬 Sending confirmation email → ${to} (order ${order.reference})`);
-
-  if (!transporter) {
-    console.log('───── EMAIL (SMTP not configured, would have sent) ─────');
-    console.log('To:', to);
-    console.log('Subject:', subject);
-    console.log('HTML length:', html.length, 'bytes');
-    console.log('────────────────────────────────────────────────────────');
-    return false;
-  }
-
-  // Plain-text version must substantively match the HTML so SpamAssassin's
-  // MPART_ALT_DIFF rule doesn't fire. Keep the same headings, same info,
-  // same order — just unstyled.
   const plainText = buildPlainTextConfirmation(order);
-
-  try {
-    console.log(`📬 → Sending confirmation to ${to} via ${host}…`);
-    const info = await transporter.sendMail({
-      from,
-      to,
-      subject,
-      html,
-      text: plainText,
-      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
-      // Headers that improve deliverability and pass Gmail bulk-sender requirements
-      headers: {
-        'X-FlightDojo-Order': order.reference,
-        'X-Mailer': 'FlightDojo',
-        // Transactional — but Gmail still wants List-Unsubscribe on every commercial mail
-        'List-Unsubscribe': `<mailto:unsubscribe@flightdojo.it.com?subject=Unsubscribe-${order.reference}>`,
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-        // Marks this as transactional to inbox providers
-        'X-Auto-Response-Suppress': 'OOF, AutoReply',
-        'Precedence': 'transactional'
-      }
-    });
-    console.log('📬 ✓ Confirmation accepted by SMTP server:');
-    console.log('   messageId:', info.messageId);
-    console.log('   response: ', info.response);
-    console.log('   accepted: ', info.accepted);
-    console.log('   rejected: ', info.rejected);
-    if (info.rejected && info.rejected.length > 0) {
-      console.error('📬 ⚠  Some recipients were REJECTED:', info.rejected);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('📬 ✗ Confirmation send FAILED:', err.message);
-    if (err.response) console.error('   SMTP response:', err.response);
-    if (err.responseCode) console.error('   SMTP code:', err.responseCode);
-    if (err.code) console.error('   Error code:', err.code);
-    return false;
-  }
+  const result = await sendAndLog({
+    to,
+    subject: `Booking Confirmed · ${order.booking_reference || order.reference}`,
+    html,
+    text: plainText,
+    headers: {
+      'X-FlightDojo-Order': order.reference,
+      'X-Mailer': 'FlightDojo',
+      'List-Unsubscribe': `<mailto:unsubscribe@flightdojo.it.com?subject=Unsubscribe-${order.reference}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      'X-Auto-Response-Suppress': 'OOF, AutoReply',
+      'Precedence': 'transactional'
+    },
+    template: 'booking_confirmation',
+    user_id: order.user_id || null,
+    order_reference: order.reference
+  });
+  return result.ok;
 }
-
 // Sent when payment goes through but Duffel rejects the order (so no PNR).
 // Customer has been charged — they need to know we're handling it.
 function bookingPendingEmail(order, failureReason) {
@@ -528,8 +555,138 @@ module.exports = {
   sendMagicLink,
   sendPasswordReset,
   sendPriceDropAlert,
-  sendGroupInvite
+  sendGroupInvite,
+  sendTicketIssued,
+  sendRefundIssued,
+  sendCustomAdmin,
+  resendByLogId,
+  sendAndLog
 };
+
+// ───────────────────────────────────────────────────────────
+// TICKET ISSUED (ops marks order ticketed)
+// ───────────────────────────────────────────────────────────
+async function sendTicketIssued(order, pnr) {
+  const html = buildAccountEmail({
+    headline: 'Ticket Issued',
+    subheadline: 'Your airline booking reference is ready',
+    intro: `Good news${order.passengers?.[0]?.given_name ? ', ' + escapeHtml(order.passengers[0].given_name) : ''}. Your ticket has been issued by the airline. Use the reference below at check-in, and for any communication with the airline directly.`,
+    ctaUrl: `${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}`,
+    ctaLabel: 'View my trip',
+    securityNote: `<strong>Airline reference (PNR):</strong> <code style="font-size:14px;background:#fff;padding:3px 6px;border-radius:3px;letter-spacing:0.08em;font-weight:700;">${escapeHtml(pnr)}</code><br/>Your FlightDojo order ID is <strong>${escapeHtml(order.reference)}</strong>.`
+  });
+  return sendAndLog({
+    to: order.contact_email,
+    subject: `Your ticket is ready · ${pnr}`,
+    html,
+    text: `Your ticket has been issued.\n\nAirline reference (PNR): ${pnr}\nFlightDojo order: ${order.reference}\n\nUse the PNR at check-in.\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}\n\n— FlightDojo`,
+    template: 'ticket_issued',
+    user_id: order.user_id || null,
+    order_reference: order.reference
+  });
+}
+
+// ───────────────────────────────────────────────────────────
+// REFUND ISSUED
+// ───────────────────────────────────────────────────────────
+async function sendRefundIssued(order, refund) {
+  const currency = order.total_currency || refund.currency || 'EUR';
+  const html = buildAccountEmail({
+    headline: 'Refund Issued',
+    subheadline: `${currency} ${refund.amount} has been refunded`,
+    intro: `We've issued a refund of <strong>${currency} ${refund.amount}</strong> for your order <strong>${escapeHtml(order.reference)}</strong>. Refunds typically appear in your account within 5-10 business days, depending on your bank.`,
+    ctaUrl: `${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}`,
+    ctaLabel: 'View order',
+    securityNote: refund.reason ? `<strong>Reason:</strong> ${escapeHtml(refund.reason)}${refund.notes ? '<br/><br/>' + escapeHtml(refund.notes) : ''}` : null
+  });
+  return sendAndLog({
+    to: order.contact_email,
+    subject: `Refund issued · ${currency} ${refund.amount} · ${order.reference}`,
+    html,
+    text: `A refund of ${currency} ${refund.amount} has been issued for order ${order.reference}.\n\nIt should appear in your account within 5-10 business days.\n\n${refund.reason ? 'Reason: ' + refund.reason + '\n\n' : ''}— FlightDojo`,
+    template: 'refund_issued',
+    user_id: order.user_id || null,
+    order_reference: order.reference
+  });
+}
+
+// ───────────────────────────────────────────────────────────
+// CUSTOM EMAIL FROM ADMIN (free-form, with brand wrapper)
+// ───────────────────────────────────────────────────────────
+async function sendCustomAdmin({ to, subject, message, order_reference, user_id }) {
+  // Convert plain text message to HTML paragraphs (preserving line breaks)
+  const messageHtml = String(message || '')
+    .split(/\n\n+/)
+    .map(p => `<p style="margin:0 0 14px 0;font-size:14px;color:#1a1a1a;line-height:1.65;">${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+
+  const html = buildAccountEmail({
+    headline: order_reference ? `Order ${order_reference}` : 'A note from FlightDojo',
+    subheadline: subject,
+    intro: messageHtml,
+    ctaUrl: null,
+    ctaLabel: null
+  });
+
+  return sendAndLog({
+    to,
+    subject,
+    html,
+    text: message,
+    template: 'admin_custom',
+    user_id: user_id || null,
+    order_reference: order_reference || null
+  });
+}
+
+// ───────────────────────────────────────────────────────────
+// RESEND A LOGGED EMAIL
+// ───────────────────────────────────────────────────────────
+async function resendByLogId(logId, actorUser) {
+  const EmailLog = getEmailLog();
+  if (!EmailLog) return { ok: false, error: 'EmailLog model unavailable' };
+  const original = await EmailLog.findById(logId);
+  if (!original) return { ok: false, error: 'Original email not found' };
+
+  // We don't store the full HTML body in the log. For most templates we can
+  // reconstruct by looking up the order/user. For 'admin_custom' we can re-send
+  // just the preview text.
+  let html, text;
+  if (original.template === 'admin_custom' && original.preview) {
+    text = original.preview;
+    html = buildAccountEmail({
+      headline: original.order_reference ? `Order ${original.order_reference}` : 'A note from FlightDojo',
+      subheadline: original.subject,
+      intro: `<p>${escapeHtml(original.preview)}</p>`,
+      ctaUrl: null
+    });
+  } else if (original.template === 'booking_confirmation' && original.order_reference) {
+    const Order = require('../models/Order');
+    const order = await Order.findOne({ reference: original.order_reference }).lean();
+    if (!order) return { ok: false, error: 'Order no longer exists' };
+    return sendBookingConfirmation(order);
+  } else {
+    return { ok: false, error: `Cannot reconstruct template "${original.template}" — please ask the system to re-trigger it instead.` };
+  }
+
+  const result = await sendAndLog({
+    to: original.to,
+    subject: '[Resent] ' + original.subject,
+    html, text,
+    template: original.template,
+    user_id: original.user_id,
+    order_reference: original.order_reference
+  });
+
+  // Mark resend on the original log entry
+  original.resend_count = (original.resend_count || 0) + 1;
+  await original.save();
+
+  if (result.logId) {
+    await EmailLog.updateOne({ _id: result.logId }, { resent_from_log_id: original._id });
+  }
+  return result;
+}
 
 // ───────────────────────────────────────────────────────────
 // PRICE DROP ALERT

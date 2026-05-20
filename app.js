@@ -20,6 +20,7 @@ const Order = require('./models/Order');
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const PassportDocument = require('./models/PassportDocument');
+const EmailLog = require('./models/EmailLog');
 
 // Multer for passport file uploads — store in memory, 8MB max, jpg/png/pdf only
 const passportUpload = multer({
@@ -1720,6 +1721,533 @@ app.get('/account/groups/join/:token', async (req, res) => {
     link: `/account/groups/${group._id}`
   }).catch(() => {});
   res.redirect(`/account/groups/${group._id}`);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN PANEL ROUTES
+// ═══════════════════════════════════════════════════════════════
+
+// Pages: dashboard / orders / order detail / users / user detail / emails / saved-searches
+// All gated by auth.requireAdmin
+
+// ─── ADMIN DASHBOARD ───
+app.get('/admin', auth.requireAdmin, async (req, res) => {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  // Bookings count + revenue aggregates
+  const [
+    awaitingCount,
+    todayCount,
+    sevenDayCount,
+    thirtyDayCount,
+    totalUsers,
+    newUsersToday,
+    recentOrders,
+    todayRevenue,
+    sevenDayRevenue,
+    thirtyDayRevenue,
+    refundsLast30,
+    emailFailures
+  ] = await Promise.all([
+    Order.countDocuments({ status: { $in: ['booked', 'paid'] } }),
+    Order.countDocuments({ createdAt: { $gte: startOfToday } }),
+    Order.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
+    Order.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+    User.countDocuments({}),
+    User.countDocuments({ createdAt: { $gte: startOfToday } }),
+    Order.find({}).sort({ createdAt: -1 }).limit(8).lean(),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: startOfToday }, status: { $in: ['booked', 'ticketed', 'completed'] } } },
+      { $group: { _id: '$total_currency', total: { $sum: { $toDouble: '$total_amount' } } } }
+    ]),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: sevenDaysAgo }, status: { $in: ['booked', 'ticketed', 'completed'] } } },
+      { $group: { _id: '$total_currency', total: { $sum: { $toDouble: '$total_amount' } } } }
+    ]),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: thirtyDaysAgo }, status: { $in: ['booked', 'ticketed', 'completed'] } } },
+      { $group: { _id: '$total_currency', total: { $sum: { $toDouble: '$total_amount' } } } }
+    ]),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+      { $unwind: '$refunds' },
+      { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $toDouble: '$refunds.amount' } } } }
+    ]),
+    EmailLog.recentFailureCount(24).catch(() => 0)
+  ]);
+
+  // Top routes (last 30 days)
+  const topRoutes = await Order.aggregate([
+    { $match: { createdAt: { $gte: thirtyDaysAgo }, 'slices.0': { $exists: true } } },
+    { $group: {
+      _id: { o: { $arrayElemAt: ['$slices.origin', 0] }, d: { $arrayElemAt: ['$slices.destination', 0] } },
+      count: { $sum: 1 }
+    }},
+    { $sort: { count: -1 } },
+    { $limit: 6 }
+  ]);
+
+  res.render('admin/dashboard', {
+    title: 'Admin · Dashboard — FlightDojo',
+    layout_admin: true,
+    active_section: 'dashboard',
+    stats: {
+      awaitingCount,
+      todayCount, sevenDayCount, thirtyDayCount,
+      totalUsers, newUsersToday,
+      todayRevenue, sevenDayRevenue, thirtyDayRevenue,
+      refundsLast30: refundsLast30[0] || { count: 0, total: 0 },
+      emailFailures
+    },
+    recentOrders,
+    topRoutes
+  });
+});
+
+// ─── ADMIN ORDERS LIST ───
+app.get('/admin/orders', auth.requireAdmin, async (req, res) => {
+  const filter = req.query.filter || 'all';
+  const search = req.query.q ? String(req.query.q).trim() : '';
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = 25;
+
+  const query = {};
+  if (filter === 'awaiting') query.status = { $in: ['booked', 'paid'] };
+  else if (filter === 'ticketed') query.status = 'ticketed';
+  else if (filter === 'completed') query.status = 'completed';
+  else if (filter === 'failed') query.status = { $in: ['failed', 'cancelled', 'risk_blocked'] };
+  else if (filter === 'refunded') query['refunds.0'] = { $exists: true };
+
+  if (search) {
+    const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    query.$or = [
+      { reference: re },
+      { booking_reference: re },
+      { contact_email: re },
+      { contact_phone: re },
+      { 'passengers.given_name': re },
+      { 'passengers.family_name': re }
+    ];
+  }
+
+  const [orders, total, counts] = await Promise.all([
+    Order.find(query).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean(),
+    Order.countDocuments(query),
+    Order.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ])
+  ]);
+
+  const countsByStatus = {};
+  counts.forEach(c => { countsByStatus[c._id] = c.count; });
+  const summary = {
+    all: Object.values(countsByStatus).reduce((a, b) => a + b, 0),
+    awaiting: (countsByStatus.booked || 0) + (countsByStatus.paid || 0),
+    ticketed: countsByStatus.ticketed || 0,
+    completed: countsByStatus.completed || 0,
+    failed: (countsByStatus.failed || 0) + (countsByStatus.cancelled || 0) + (countsByStatus.risk_blocked || 0)
+  };
+
+  res.render('admin/orders', {
+    title: 'Admin · Orders — FlightDojo',
+    layout_admin: true,
+    active_section: 'orders',
+    orders,
+    filter,
+    search,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.ceil(total / pageSize),
+    summary
+  });
+});
+
+// ─── ADMIN ORDER DETAIL ───
+app.get('/admin/orders/:reference', auth.requireAdmin, async (req, res) => {
+  const order = await Order.findOne({ reference: req.params.reference })
+    .populate('user_id', 'email name phone createdAt')
+    .populate('group_id', 'name icon')
+    .lean();
+  if (!order) return res.status(404).render('404', { title: '404 — FlightDojo' });
+
+  // Email history for this order
+  const emails = await EmailLog.find({ order_reference: order.reference })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  res.render('admin/order-detail', {
+    title: `Admin · ${order.reference} — FlightDojo`,
+    layout_admin: true,
+    active_section: 'orders',
+    order,
+    emails,
+    stripe_dashboard_url: process.env.STRIPE_DASHBOARD_URL || 'https://dashboard.stripe.com/test/payments'
+  });
+});
+
+// ─── ADMIN ACTIONS ON ORDERS ───
+
+// Mark ticketed: customer's PNR is now known. Updates order, pushes notification,
+// sends "your ticket is ready" email.
+app.post('/api/admin/orders/:reference/ticket', auth.requireAdmin, async (req, res) => {
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const { pnr, note } = req.body || {};
+  if (!pnr || !/^[A-Z0-9]{5,8}$/i.test(String(pnr).trim())) {
+    return res.status(400).json({ error: 'PNR is required (5-8 alphanumeric characters).' });
+  }
+
+  const cleanPnr = String(pnr).trim().toUpperCase();
+  order.booking_reference = cleanPnr;
+  order.status = 'ticketed';
+  order.ticketed_at = new Date();
+  order.ticketed_by_user_id = req.user._id;
+  order.ticketed_by_email = req.user.email;
+  order.audit_log.push({
+    action: 'marked_ticketed',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email,
+    payload: { pnr: cleanPnr, note: note || null }
+  });
+  if (note) {
+    order.internal_notes.push({
+      text: `Ticketed with PNR ${cleanPnr}. ${note}`,
+      author_user_id: req.user._id,
+      author_email: req.user.email
+    });
+  }
+  await order.save();
+
+  // Send email
+  mailer.sendTicketIssued(order.toObject(), cleanPnr).catch(() => {});
+
+  // Push notification if user is linked
+  if (order.user_id) {
+    const route = order.slices?.[0] ? `${order.slices[0].origin} → ${order.slices[order.slices.length-1].destination}` : 'your trip';
+    Notification.push(order.user_id, {
+      type: 'ticket_issued',
+      title: `Ticket ready · ${route}`,
+      body: `Your airline reference is ${cleanPnr}. Check-in opens 24h before departure.`,
+      link: `/account/bookings/${order.reference}`,
+      order_reference: order.reference
+    }).catch(() => {});
+  }
+
+  res.json({ ok: true });
+});
+
+// Mark completed (trip has been taken / closed out)
+app.post('/api/admin/orders/:reference/complete', auth.requireAdmin, async (req, res) => {
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  order.status = 'completed';
+  order.completed_at = new Date();
+  order.audit_log.push({
+    action: 'marked_completed',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email
+  });
+  await order.save();
+  res.json({ ok: true });
+});
+
+// Mark cancelled (without refund — e.g. customer no-show, or refund happened externally)
+app.post('/api/admin/orders/:reference/cancel', auth.requireAdmin, async (req, res) => {
+  const { reason } = req.body || {};
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  order.status = 'cancelled';
+  order.audit_log.push({
+    action: 'marked_cancelled',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email,
+    payload: { reason: reason || null }
+  });
+  if (reason) {
+    order.internal_notes.push({
+      text: `Cancelled. ${reason}`,
+      author_user_id: req.user._id,
+      author_email: req.user.email
+    });
+  }
+  await order.save();
+  res.json({ ok: true });
+});
+
+// Issue refund (via Stripe API)
+app.post('/api/admin/orders/:reference/refund', auth.requireAdmin, async (req, res) => {
+  const { amount, reason, notes, confirm_ref } = req.body || {};
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  // Type-the-ref-to-confirm safety
+  if (confirm_ref !== order.reference) {
+    return res.status(400).json({ error: 'Type the order reference exactly to confirm.' });
+  }
+  if (!order.stripe_payment_intent_id) {
+    return res.status(400).json({ error: 'No Stripe PaymentIntent recorded on this order. Refund manually in Stripe dashboard.' });
+  }
+
+  const refundAmount = amount && parseFloat(amount) > 0 ? parseFloat(amount) : parseFloat(order.total_amount);
+  const alreadyRefunded = parseFloat(order.total_refunded || '0');
+  if (alreadyRefunded + refundAmount > parseFloat(order.total_amount) + 0.01) {
+    return res.status(400).json({ error: `Refund exceeds order total. Already refunded: ${order.total_currency} ${alreadyRefunded}, order total: ${order.total_currency} ${order.total_amount}` });
+  }
+
+  const result = await stripeService.refundPaymentIntent(
+    order.stripe_payment_intent_id,
+    refundAmount,
+    reason || 'requested_by_customer'
+  );
+  if (!result.ok) return res.status(500).json({ error: result.error });
+
+  order.refunds.push({
+    stripe_refund_id: result.refund_id,
+    amount: refundAmount.toFixed(2),
+    currency: order.total_currency,
+    reason: reason || 'requested_by_customer',
+    notes: notes || '',
+    status: result.status,
+    issued_by_user_id: req.user._id,
+    issued_by_email: req.user.email
+  });
+  order.total_refunded = (alreadyRefunded + refundAmount).toFixed(2);
+  order.audit_log.push({
+    action: 'refund_issued',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email,
+    payload: {
+      stripe_refund_id: result.refund_id,
+      amount: refundAmount.toFixed(2),
+      currency: order.total_currency,
+      reason: reason || null
+    }
+  });
+  // If fully refunded, mark cancelled
+  if (Math.abs(parseFloat(order.total_refunded) - parseFloat(order.total_amount)) < 0.01) {
+    order.status = 'cancelled';
+  }
+  await order.save();
+
+  // Notify customer + send refund email
+  mailer.sendRefundIssued(order.toObject(), {
+    amount: refundAmount.toFixed(2),
+    currency: order.total_currency,
+    reason: reason || null,
+    notes: notes || null
+  }).catch(() => {});
+
+  if (order.user_id) {
+    Notification.push(order.user_id, {
+      type: 'payment_received',
+      title: `Refund issued · ${order.total_currency} ${refundAmount.toFixed(2)}`,
+      body: `We've refunded ${order.total_currency} ${refundAmount.toFixed(2)} for order ${order.reference}. It should appear in your account within 5-10 business days.`,
+      link: `/account/bookings/${order.reference}`,
+      order_reference: order.reference
+    }).catch(() => {});
+  }
+
+  res.json({ ok: true, refund: result });
+});
+
+// Add internal note (ops-only, never shown to customer)
+app.post('/api/admin/orders/:reference/notes', auth.requireAdmin, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || !String(text).trim()) return res.status(400).json({ error: 'Note text required.' });
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  order.internal_notes.push({
+    text: String(text).trim().slice(0, 2000),
+    author_user_id: req.user._id,
+    author_email: req.user.email
+  });
+  order.audit_log.push({
+    action: 'note_added',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email
+  });
+  await order.save();
+  res.json({ ok: true });
+});
+
+// Send custom email to customer
+app.post('/api/admin/orders/:reference/email', auth.requireAdmin, async (req, res) => {
+  const { subject, message } = req.body || {};
+  if (!subject || !message) return res.status(400).json({ error: 'Subject and message required.' });
+  const order = await Order.findOne({ reference: req.params.reference });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const result = await mailer.sendCustomAdmin({
+    to: order.contact_email,
+    subject: String(subject).slice(0, 200),
+    message: String(message).slice(0, 5000),
+    order_reference: order.reference,
+    user_id: order.user_id || null
+  });
+
+  order.audit_log.push({
+    action: 'email_sent',
+    actor_user_id: req.user._id,
+    actor_email: req.user.email,
+    payload: { subject, success: result.ok }
+  });
+  await order.save();
+
+  res.json(result);
+});
+
+// Resend an existing email
+app.post('/api/admin/emails/:id/resend', auth.requireAdmin, async (req, res) => {
+  const result = await mailer.resendByLogId(req.params.id, req.user);
+  res.json(result);
+});
+
+// ─── ADMIN USERS LIST ───
+app.get('/admin/users', auth.requireAdmin, async (req, res) => {
+  const search = req.query.q ? String(req.query.q).trim() : '';
+  const sort = req.query.sort || 'recent';
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = 30;
+
+  const query = {};
+  if (search) {
+    const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    query.$or = [{ email: re }, { name: re }, { phone: re }];
+  }
+
+  const sortMap = {
+    recent: { createdAt: -1 },
+    oldest: { createdAt: 1 },
+    name: { name: 1 },
+    last_login: { last_login_at: -1 }
+  };
+
+  const users = await User.find(query)
+    .select('email name phone createdAt last_login_at login_count is_admin admin_role referrals_count')
+    .sort(sortMap[sort] || sortMap.recent)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
+    .lean();
+
+  // For each user, compute order count + total spend (efficient via aggregation)
+  const userIds = users.map(u => u._id);
+  const stats = await Order.aggregate([
+    { $match: { user_id: { $in: userIds }, status: { $in: ['booked', 'ticketed', 'completed'] } } },
+    { $group: {
+      _id: '$user_id',
+      orders: { $sum: 1 },
+      spend: { $sum: { $toDouble: '$total_amount' } }
+    }}
+  ]);
+  const statsByUser = {};
+  stats.forEach(s => { statsByUser[String(s._id)] = s; });
+  users.forEach(u => {
+    const s = statsByUser[String(u._id)];
+    u.orders_count = s?.orders || 0;
+    u.total_spend = s?.spend || 0;
+  });
+
+  const total = await User.countDocuments(query);
+
+  res.render('admin/users', {
+    title: 'Admin · Users — FlightDojo',
+    layout_admin: true,
+    active_section: 'users',
+    users,
+    search,
+    sort,
+    page,
+    total,
+    totalPages: Math.ceil(total / pageSize)
+  });
+});
+
+// ─── ADMIN USER DETAIL ───
+app.get('/admin/users/:id', auth.requireAdmin, async (req, res) => {
+  let user;
+  try {
+    user = await User.findById(req.params.id).lean();
+  } catch (e) {
+    return res.status(404).render('404', { title: '404 — FlightDojo' });
+  }
+  if (!user) return res.status(404).render('404', { title: '404 — FlightDojo' });
+
+  const [orders, emails, notifications] = await Promise.all([
+    Order.find({ user_id: user._id }).sort({ createdAt: -1 }).limit(50).lean(),
+    EmailLog.find({ $or: [{ user_id: user._id }, { to: user.email }] }).sort({ createdAt: -1 }).limit(30).lean(),
+    Notification.find({ user_id: user._id }).sort({ createdAt: -1 }).limit(20).lean()
+  ]);
+
+  const totalSpend = orders
+    .filter(o => ['booked', 'ticketed', 'completed'].includes(o.status))
+    .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+
+  res.render('admin/user-detail', {
+    title: `Admin · ${user.email} — FlightDojo`,
+    layout_admin: true,
+    active_section: 'users',
+    target_user: user,
+    orders,
+    emails,
+    notifications,
+    total_spend: totalSpend,
+    is_self: String(user._id) === String(req.user._id)
+  });
+});
+
+// Trigger password reset for a user (admin action — generates link, emails it)
+app.post('/api/admin/users/:id/trigger-reset', auth.requireAdmin, async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const result = await auth.startPasswordReset({ email: user.email });
+  if (result.token && result.user) {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+    const linkUrl = `${baseUrl}/account/reset/${result.token}`;
+    mailer.sendPasswordReset(result.user, linkUrl).catch(() => {});
+  }
+  res.json({ ok: true });
+});
+
+// ─── ADMIN EMAILS LOG ───
+app.get('/admin/emails', auth.requireAdmin, async (req, res) => {
+  const status = req.query.status || 'all';
+  const search = req.query.q ? String(req.query.q).trim() : '';
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = 50;
+
+  const query = {};
+  if (status && status !== 'all') query.status = status;
+  if (search) {
+    const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    query.$or = [{ to: re }, { subject: re }, { order_reference: re }];
+  }
+
+  const [emails, total, counts] = await Promise.all([
+    EmailLog.find(query).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean(),
+    EmailLog.countDocuments(query),
+    EmailLog.aggregate([{ $group: { _id: '$status', c: { $sum: 1 } } }])
+  ]);
+
+  const summary = {};
+  counts.forEach(c => { summary[c._id] = c.c; });
+
+  res.render('admin/emails', {
+    title: 'Admin · Emails — FlightDojo',
+    layout_admin: true,
+    active_section: 'emails',
+    emails,
+    status,
+    search,
+    page,
+    total,
+    totalPages: Math.ceil(total / pageSize),
+    summary
+  });
 });
 
 // ─── STATIC PAGES ────────────────────────────────────────

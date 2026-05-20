@@ -1,0 +1,70 @@
+<%- include('_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>Users</h1>
+  <p class="adm-page-sub"><%= total.toLocaleString() %> total</p>
+</div>
+
+<div class="adm-toolbar">
+  <div class="adm-tabs">
+    <a href="?sort=recent<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= sort === 'recent' ? 'active' : '' %>">Recent signups</a>
+    <a href="?sort=last_login<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= sort === 'last_login' ? 'active' : '' %>">Recently active</a>
+    <a href="?sort=name<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= sort === 'name' ? 'active' : '' %>">By name</a>
+  </div>
+  <form method="get" class="adm-search-form">
+    <input type="hidden" name="sort" value="<%= sort %>"/>
+    <i data-lucide="search" style="width:13px;height:13px;"></i>
+    <input type="text" name="q" placeholder="Search email, name, phone…" value="<%= search %>"/>
+    <% if (search) { %><a href="/admin/users?sort=<%= sort %>" class="adm-search-clear">×</a><% } %>
+  </form>
+</div>
+
+<div class="adm-card adm-card-flush">
+  <% if (users.length === 0) { %>
+    <div class="adm-empty adm-empty-large">No users match.</div>
+  <% } else { %>
+    <table class="adm-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Orders</th>
+          <th>Spend</th>
+          <th>Last seen</th>
+          <th>Signed up</th>
+          <th>Flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% users.forEach(u => { %>
+          <tr onclick="window.location.href='/admin/users/<%= u._id %>'" class="adm-row-link">
+            <td>
+              <div class="adm-customer-name"><%= u.name || '—' %></div>
+              <div class="adm-customer-email"><%= u.email %></div>
+              <% if (u.phone) { %><div class="adm-customer-phone"><%= u.phone %></div><% } %>
+            </td>
+            <td class="adm-num"><%= u.orders_count || 0 %></td>
+            <td class="adm-num"><%= u.total_spend > 0 ? Math.round(u.total_spend).toLocaleString() : '—' %></td>
+            <td class="adm-time">
+              <% if (u.last_login_at) { %><%= new Date(u.last_login_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) %><% } else { %>—<% } %>
+            </td>
+            <td class="adm-time"><%= new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) %></td>
+            <td>
+              <% if (u.is_admin) { %><span class="adm-pill adm-pill-admin">admin</span><% } %>
+              <% if ((u.referrals_count || 0) > 0) { %><span class="adm-pill">★ <%= u.referrals_count %></span><% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<% if (totalPages > 1) { %>
+  <div class="adm-pagination">
+    <% if (page > 1) { %><a href="?sort=<%= sort %>&q=<%= encodeURIComponent(search) %>&page=<%= page - 1 %>">← Previous</a><% } %>
+    <span class="adm-page-info">Page <%= page %> of <%= totalPages %></span>
+    <% if (page < totalPages) { %><a href="?sort=<%= sort %>&q=<%= encodeURIComponent(search) %>&page=<%= page + 1 %>">Next →</a><% } %>
+  </div>
+<% } %>
+
+<%- include('_layout-end') %>

@@ -1,0 +1,450 @@
+<%- include('_layout-start') %>
+
+<% const currency = order.total_currency || 'EUR'; %>
+<% const total = parseFloat(order.total_amount || 0); %>
+<% const refunded = parseFloat(order.total_refunded || 0); %>
+
+<a href="/admin/orders" class="adm-back-link">
+  <i data-lucide="arrow-left" style="width:13px;height:13px;"></i> All orders
+</a>
+
+<div class="adm-order-head">
+  <div>
+    <div class="adm-order-ref"><%= order.reference %></div>
+    <h1 class="adm-order-route">
+      <%= order.slices?.[0]?.origin %> → <%= order.slices?.[order.slices.length-1]?.destination %>
+    </h1>
+    <div class="adm-order-meta">
+      <span><i data-lucide="users" style="width:11px;height:11px;"></i> <%= order.passenger_count || (order.passengers?.length || 1) %> pax</span>
+      <span><i data-lucide="plane" style="width:11px;height:11px;"></i> <%= order.carrier || order.carrier_iata || '—' %></span>
+      <span><i data-lucide="calendar" style="width:11px;height:11px;"></i> <%= order.slices?.[0]?.departure_date %></span>
+      <span><i data-lucide="clock" style="width:11px;height:11px;"></i> Created <%= new Date(order.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) %></span>
+    </div>
+  </div>
+  <div class="adm-order-status">
+    <span class="adm-status adm-status-large adm-status-<%= order.status %>"><%= order.status.replace('_', ' ') %></span>
+    <% if (order.booking_reference && order.booking_reference !== order.reference) { %>
+      <div class="adm-order-pnr"><strong>PNR:</strong> <%= order.booking_reference %></div>
+    <% } %>
+  </div>
+</div>
+
+<!-- ACTION TOOLBAR -->
+<div class="adm-actions-bar">
+  <% if (['booked', 'paid'].includes(order.status)) { %>
+    <button class="adm-btn-primary" data-action="ticket" data-ref="<%= order.reference %>">
+      <i data-lucide="ticket" style="width:13px;height:13px;"></i>
+      Mark ticketed
+    </button>
+  <% } %>
+  <% if (order.status === 'ticketed') { %>
+    <button class="adm-btn-secondary" data-action="complete" data-ref="<%= order.reference %>">
+      <i data-lucide="check-check" style="width:13px;height:13px;"></i>
+      Mark completed
+    </button>
+  <% } %>
+  <% if (!['cancelled', 'failed'].includes(order.status) && order.stripe_payment_intent_id) { %>
+    <button class="adm-btn-secondary" data-action="refund" data-ref="<%= order.reference %>" data-total="<%= total.toFixed(2) %>" data-currency="<%= currency %>" data-refunded="<%= refunded.toFixed(2) %>">
+      <i data-lucide="rotate-ccw" style="width:13px;height:13px;"></i>
+      Issue refund
+    </button>
+  <% } %>
+  <% if (!['cancelled', 'completed'].includes(order.status)) { %>
+    <button class="adm-btn-secondary" data-action="cancel" data-ref="<%= order.reference %>">
+      <i data-lucide="x-circle" style="width:13px;height:13px;"></i>
+      Cancel
+    </button>
+  <% } %>
+  <button class="adm-btn-secondary" data-action="email" data-ref="<%= order.reference %>" data-email="<%= order.contact_email %>">
+    <i data-lucide="mail" style="width:13px;height:13px;"></i>
+    Send email
+  </button>
+  <button class="adm-btn-secondary" data-action="note" data-ref="<%= order.reference %>">
+    <i data-lucide="sticky-note" style="width:13px;height:13px;"></i>
+    Add note
+  </button>
+</div>
+
+<div class="adm-detail-grid">
+  <div class="adm-detail-main">
+
+    <!-- Itinerary -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Itinerary</h3></div>
+      <% (order.slices || []).forEach((slice, idx) => { %>
+        <div class="adm-itin-slice">
+          <div class="adm-itin-head">
+            <span class="adm-itin-tag"><%= idx === 0 ? 'Outbound' : 'Return' %></span>
+            <span><strong><%= slice.origin %></strong> → <strong><%= slice.destination %></strong> · <%= slice.departure_date %></span>
+            <span class="adm-itin-meta"><%= slice.duration || '' %> · <%= slice.stops === 0 ? 'Direct' : (slice.stops + ' stop' + (slice.stops > 1 ? 's' : '')) %></span>
+          </div>
+          <% (slice.segments || []).forEach(seg => { %>
+            <div class="adm-segment"><%= seg.carrier %> <%= seg.carrier_iata %> <%= seg.flight_number %> <span class="adm-segment-aircraft"><%= seg.aircraft || '' %></span></div>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Passengers -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Passengers</h3></div>
+      <% (order.passengers || []).forEach((p, i) => { %>
+        <div class="adm-pax-row">
+          <div class="adm-pax-num"><%= i + 1 %></div>
+          <div>
+            <div class="adm-pax-name"><%= [p.title, p.given_name, p.family_name].filter(Boolean).join(' ') %></div>
+            <div class="adm-pax-meta">
+              <%= p.type %><% if (p.born_on) { %> · DOB <%= p.born_on %><% } %><% if (p.gender) { %> · <%= p.gender %><% } %>
+            </div>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Add-ons -->
+    <% if (order.addons && ((order.addons.seats && order.addons.seats.length) || (order.addons.bags && order.addons.bags.length) || order.addons.seat_preference_notes || order.addons.bag_preference_notes)) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Add-ons (need to be requested with airline)</h3></div>
+        <% if (order.addons.seats && order.addons.seats.length > 0) { %>
+          <div class="adm-addon-block">
+            <div class="adm-addon-label">Seats</div>
+            <% order.addons.seats.forEach(s => { %>
+              <div>Passenger <%= s.passenger_index + 1 %> · Slice <%= s.slice_index + 1 %>: <strong><%= s.designator %></strong> · <%= currency %> <%= Math.round(parseFloat(s.amount || 0)) %></div>
+            <% }) %>
+          </div>
+        <% } %>
+        <% if (order.addons.bags && order.addons.bags.length > 0) { %>
+          <div class="adm-addon-block">
+            <div class="adm-addon-label">Bags</div>
+            <% order.addons.bags.forEach(b => { %>
+              <div>Passenger <%= b.passenger_index + 1 %>: <%= b.kind === 'carry_on' ? 'Carry-on' : 'Checked' %><%= b.max_weight_kg ? ' (' + b.max_weight_kg + 'kg)' : '' %> · <%= currency %> <%= Math.round(parseFloat(b.amount || 0)) %></div>
+            <% }) %>
+          </div>
+        <% } %>
+        <% if (order.addons.seat_preference_notes) { %>
+          <div class="adm-addon-block">
+            <div class="adm-addon-label">Seat preferences</div>
+            <div class="adm-pre"><%= order.addons.seat_preference_notes %></div>
+          </div>
+        <% } %>
+        <% if (order.addons.bag_preference_notes) { %>
+          <div class="adm-addon-block">
+            <div class="adm-addon-label">Bag preferences</div>
+            <div class="adm-pre"><%= order.addons.bag_preference_notes %></div>
+          </div>
+        <% } %>
+      </div>
+    <% } %>
+
+    <!-- Internal notes -->
+    <div class="adm-card">
+      <div class="adm-card-head">
+        <h3>Internal notes <span class="adm-card-sub">(ops only — not visible to customer)</span></h3>
+      </div>
+      <% if (!order.internal_notes || order.internal_notes.length === 0) { %>
+        <div class="adm-empty">No notes yet. Use "Add note" to record ops actions.</div>
+      <% } else { %>
+        <% order.internal_notes.slice().reverse().forEach(n => { %>
+          <div class="adm-note">
+            <div class="adm-note-meta">
+              <strong><%= n.author_email %></strong>
+              <span><%= new Date(n.created_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) %></span>
+            </div>
+            <div class="adm-note-text"><%= n.text %></div>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+
+    <!-- Audit log -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Audit log</h3></div>
+      <% if (!order.audit_log || order.audit_log.length === 0) { %>
+        <div class="adm-empty">No actions logged yet.</div>
+      <% } else { %>
+        <div class="adm-audit-list">
+          <% order.audit_log.slice().reverse().forEach(a => { %>
+            <div class="adm-audit-row">
+              <span class="adm-audit-time"><%= new Date(a.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+              <span class="adm-audit-action"><%= a.action.replace(/_/g, ' ') %></span>
+              <span class="adm-audit-actor"><%= a.actor_email || 'system' %></span>
+              <% if (a.payload) { %>
+                <span class="adm-audit-payload"><%= JSON.stringify(a.payload).slice(0, 120) %></span>
+              <% } %>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <aside class="adm-detail-side">
+
+    <!-- Payment -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Payment</h3></div>
+      <div class="adm-pay-row"><span>Base fare</span><span><%= currency %> <%= Math.round(parseFloat(order.base_amount || 0)) %></span></div>
+      <div class="adm-pay-row"><span>Taxes &amp; fees</span><span><%= currency %> <%= Math.round(parseFloat(order.tax_amount || 0)) %></span></div>
+      <% if (order.addons && parseFloat(order.addons.total_addons_amount || 0) > 0) { %>
+        <div class="adm-pay-row"><span>Add-ons</span><span><%= currency %> <%= Math.round(parseFloat(order.addons.total_addons_amount)) %></span></div>
+      <% } %>
+      <% if (order.applied_discount && order.applied_discount.amount_off) { %>
+        <div class="adm-pay-row adm-pay-discount">
+          <span>Discount (<%= order.applied_discount.note %>)</span>
+          <span>−<%= currency %> <%= Math.round(parseFloat(order.applied_discount.amount_off)) %></span>
+        </div>
+      <% } %>
+      <div class="adm-pay-divider"></div>
+      <div class="adm-pay-row adm-pay-total"><span>Customer paid</span><span><%= currency %> <%= Math.round(total) %></span></div>
+      <% if (refunded > 0) { %>
+        <div class="adm-pay-row adm-pay-refund-row"><span>Refunded</span><span>−<%= currency %> <%= refunded.toFixed(2) %></span></div>
+        <div class="adm-pay-row adm-pay-net"><span>Net</span><span><%= currency %> <%= (total - refunded).toFixed(2) %></span></div>
+      <% } %>
+      <% if (order.stripe_payment_intent_id) { %>
+        <div class="adm-pay-stripe">
+          <div class="adm-pay-stripe-label">Stripe PaymentIntent</div>
+          <a href="<%= stripe_dashboard_url %>/<%= order.stripe_payment_intent_id %>" target="_blank" rel="noopener" class="adm-pay-stripe-link">
+            <%= order.stripe_payment_intent_id %>
+            <i data-lucide="external-link" style="width:10px;height:10px;"></i>
+          </a>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Refund history -->
+    <% if (order.refunds && order.refunds.length > 0) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Refund history</h3></div>
+        <% order.refunds.forEach(r => { %>
+          <div class="adm-refund-row">
+            <div><strong><%= r.currency %> <%= r.amount %></strong> · <span class="adm-refund-status adm-refund-<%= r.status %>"><%= r.status %></span></div>
+            <div class="adm-refund-meta">
+              <%= r.reason %><% if (r.notes) { %> · <%= r.notes %><% } %>
+            </div>
+            <div class="adm-refund-meta-small">By <%= r.issued_by_email %> · <%= new Date(r.issued_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <!-- Customer / contact -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Customer</h3></div>
+      <div class="adm-kv"><span>Email</span><a href="mailto:<%= order.contact_email %>"><%= order.contact_email %></a></div>
+      <div class="adm-kv"><span>Phone</span><span><%= order.contact_phone %></span></div>
+      <% if (order.user_id) { %>
+        <div class="adm-kv"><span>Account</span>
+          <a href="/admin/users/<%= order.user_id._id %>"><%= order.user_id.email %> →</a>
+        </div>
+      <% } else { %>
+        <div class="adm-kv"><span>Account</span><span class="adm-muted">Guest booking</span></div>
+      <% } %>
+      <% if (order.group_id) { %>
+        <div class="adm-kv"><span>Group</span><span><%= order.group_id.icon || '👥' %> <%= order.group_id.name %></span></div>
+      <% } %>
+    </div>
+
+    <!-- Billing -->
+    <% if (order.billing) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Billing address</h3></div>
+        <div class="adm-billing">
+          <strong><%= order.billing.name %></strong>
+          <% if (order.billing.company) { %><br/><%= order.billing.company %><% } %>
+          <br/><%= order.billing.line1 %>
+          <% if (order.billing.line2) { %><br/><%= order.billing.line2 %><% } %>
+          <br/><%= order.billing.city %>, <%= order.billing.state %> <%= order.billing.postal_code %>
+          <br/><%= order.billing.country_name || order.billing.country %>
+        </div>
+      </div>
+    <% } %>
+
+    <!-- ProxyCheck risk -->
+    <% if (order.proxy_check) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Risk check</h3></div>
+        <div class="adm-kv"><span>IP</span><span><%= order.proxy_check.ip || '—' %></span></div>
+        <div class="adm-kv"><span>Country</span><span><%= order.proxy_check.country || '—' %></span></div>
+        <div class="adm-kv"><span>Risk score</span><span class="<%= (order.proxy_check.risk || 0) >= 50 ? 'adm-risk-high' : '' %>"><%= order.proxy_check.risk || 0 %>/100</span></div>
+        <div class="adm-kv"><span>Type</span><span><%= order.proxy_check.proxy_type || 'residential' %></span></div>
+        <% if (order.proxy_check.allowed === false) { %>
+          <div class="adm-kv"><span>Blocked</span><span class="adm-risk-high">YES</span></div>
+        <% } %>
+      </div>
+    <% } %>
+
+    <!-- Email history -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Emails sent (<%= emails.length %>)</h3></div>
+      <% if (emails.length === 0) { %>
+        <div class="adm-empty">No emails on record.</div>
+      <% } else { %>
+        <% emails.forEach(e => { %>
+          <div class="adm-email-row">
+            <div class="adm-email-subject"><%= e.subject %></div>
+            <div class="adm-email-meta">
+              <span class="adm-email-status adm-email-<%= e.status %>"><%= e.status %></span>
+              <span><%= new Date(e.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+              <% if (e.status === 'failed' || e.status === 'rejected') { %>
+                <button class="adm-email-resend" data-resend="<%= e._id %>">Resend</button>
+              <% } %>
+            </div>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </aside>
+</div>
+
+<!-- ─── MODALS ─── -->
+
+<!-- Ticket modal -->
+<div id="ticketModal" class="adm-modal" style="display:none;" data-modal>
+  <div class="adm-modal-backdrop" data-modal-close></div>
+  <div class="adm-modal-card">
+    <div class="adm-modal-head">
+      <h3>Mark order as ticketed</h3>
+      <button class="adm-modal-close" data-modal-close>&times;</button>
+    </div>
+    <form id="ticketForm">
+      <p class="adm-modal-sub">Enter the airline-issued PNR. The customer will be notified by email + in-app.</p>
+      <div class="adm-field">
+        <label>Airline PNR (5-8 chars)</label>
+        <input type="text" name="pnr" required pattern="[A-Za-z0-9]{5,8}" maxlength="8" placeholder="e.g. H6GBPK" style="text-transform:uppercase;"/>
+      </div>
+      <div class="adm-field">
+        <label>Note (optional)</label>
+        <textarea name="note" rows="2" placeholder="Anything to record for context"></textarea>
+      </div>
+      <div class="adm-modal-actions">
+        <button type="button" data-modal-close class="adm-btn-secondary">Cancel</button>
+        <button type="submit" class="adm-btn-primary">
+          <i data-lucide="check" style="width:13px;height:13px;"></i> Mark ticketed
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Refund modal -->
+<div id="refundModal" class="adm-modal" style="display:none;" data-modal>
+  <div class="adm-modal-backdrop" data-modal-close></div>
+  <div class="adm-modal-card">
+    <div class="adm-modal-head">
+      <h3>Issue refund</h3>
+      <button class="adm-modal-close" data-modal-close>&times;</button>
+    </div>
+    <form id="refundForm">
+      <p class="adm-modal-sub adm-refund-warning">
+        <i data-lucide="alert-triangle" style="width:13px;height:13px;"></i>
+        This refunds via Stripe immediately. Refunds typically appear in 5-10 business days.
+      </p>
+      <div class="adm-field">
+        <label>Amount (<%= currency %>)</label>
+        <input type="number" name="amount" step="0.01" min="0.01" max="<%= total %>" value="<%= (total - refunded).toFixed(2) %>"/>
+        <div class="adm-field-hint">Already refunded: <%= currency %> <%= refunded.toFixed(2) %> / <%= currency %> <%= total.toFixed(2) %></div>
+      </div>
+      <div class="adm-field">
+        <label>Reason</label>
+        <select name="reason">
+          <option value="requested_by_customer">Requested by customer</option>
+          <option value="schedule_change">Airline schedule change</option>
+          <option value="cancellation">Customer cancellation</option>
+          <option value="fraud">Fraudulent / disputed charge</option>
+          <option value="ops_error">Ops error / duplicate booking</option>
+          <option value="goodwill">Goodwill gesture</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="adm-field">
+        <label>Notes (internal)</label>
+        <textarea name="notes" rows="2"></textarea>
+      </div>
+      <div class="adm-field">
+        <label>Type the order reference to confirm</label>
+        <input type="text" name="confirm_ref" required placeholder="<%= order.reference %>" autocomplete="off"/>
+      </div>
+      <div class="adm-modal-actions">
+        <button type="button" data-modal-close class="adm-btn-secondary">Cancel</button>
+        <button type="submit" class="adm-btn-danger">
+          <i data-lucide="rotate-ccw" style="width:13px;height:13px;"></i> Issue refund
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Email modal -->
+<div id="emailModal" class="adm-modal" style="display:none;" data-modal>
+  <div class="adm-modal-backdrop" data-modal-close></div>
+  <div class="adm-modal-card">
+    <div class="adm-modal-head">
+      <h3>Send custom email</h3>
+      <button class="adm-modal-close" data-modal-close>&times;</button>
+    </div>
+    <form id="emailForm">
+      <div class="adm-field">
+        <label>To</label>
+        <input type="text" value="<%= order.contact_email %>" disabled/>
+      </div>
+      <div class="adm-field">
+        <label>Subject</label>
+        <input type="text" name="subject" required maxlength="200"/>
+      </div>
+      <div class="adm-field">
+        <label>Message</label>
+        <textarea name="message" rows="6" required maxlength="5000" placeholder="Plain text. Branded wrapper is added automatically."></textarea>
+      </div>
+      <div class="adm-modal-actions">
+        <button type="button" data-modal-close class="adm-btn-secondary">Cancel</button>
+        <button type="submit" class="adm-btn-primary">
+          <i data-lucide="send" style="width:13px;height:13px;"></i> Send
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Note modal -->
+<div id="noteModal" class="adm-modal" style="display:none;" data-modal>
+  <div class="adm-modal-backdrop" data-modal-close></div>
+  <div class="adm-modal-card">
+    <div class="adm-modal-head">
+      <h3>Add internal note</h3>
+      <button class="adm-modal-close" data-modal-close>&times;</button>
+    </div>
+    <form id="noteForm">
+      <div class="adm-field">
+        <textarea name="text" rows="4" required maxlength="2000" placeholder="Internal note — not visible to customer."></textarea>
+      </div>
+      <div class="adm-modal-actions">
+        <button type="button" data-modal-close class="adm-btn-secondary">Cancel</button>
+        <button type="submit" class="adm-btn-primary">Save note</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Cancel modal -->
+<div id="cancelModal" class="adm-modal" style="display:none;" data-modal>
+  <div class="adm-modal-backdrop" data-modal-close></div>
+  <div class="adm-modal-card">
+    <div class="adm-modal-head">
+      <h3>Cancel order (no refund)</h3>
+      <button class="adm-modal-close" data-modal-close>&times;</button>
+    </div>
+    <form id="cancelForm">
+      <p class="adm-modal-sub">Marks the order cancelled. <strong>Does NOT issue a refund</strong> — use the Refund button for that.</p>
+      <div class="adm-field">
+        <label>Reason</label>
+        <textarea name="reason" rows="3" placeholder="Why is this being cancelled?"></textarea>
+      </div>
+      <div class="adm-modal-actions">
+        <button type="button" data-modal-close class="adm-btn-secondary">Keep order</button>
+        <button type="submit" class="adm-btn-danger">Cancel order</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('_layout-end') %>

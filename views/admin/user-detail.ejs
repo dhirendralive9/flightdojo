@@ -1,0 +1,140 @@
+<%- include('_layout-start') %>
+
+<a href="/admin/users" class="adm-back-link">
+  <i data-lucide="arrow-left" style="width:13px;height:13px;"></i> All users
+</a>
+
+<div class="adm-order-head">
+  <div>
+    <div class="adm-order-ref"><%= target_user.email %></div>
+    <h1 class="adm-order-route"><%= target_user.name || target_user.email %></h1>
+    <div class="adm-order-meta">
+      <% if (target_user.phone) { %><span><i data-lucide="phone" style="width:11px;height:11px;"></i> <%= target_user.phone %></span><% } %>
+      <span><i data-lucide="calendar" style="width:11px;height:11px;"></i> Joined <%= new Date(target_user.createdAt).toLocaleDateString('en-US', { dateStyle: 'medium' }) %></span>
+      <% if (target_user.last_login_at) { %>
+        <span><i data-lucide="log-in" style="width:11px;height:11px;"></i> Last login <%= new Date(target_user.last_login_at).toLocaleDateString('en-US', { dateStyle: 'medium' }) %></span>
+      <% } %>
+      <span><i data-lucide="hash" style="width:11px;height:11px;"></i> <%= target_user.login_count || 0 %> logins</span>
+    </div>
+  </div>
+  <div class="adm-order-status">
+    <% if (target_user.is_admin) { %><span class="adm-pill adm-pill-admin">ADMIN<% if (target_user.admin_role) { %> · <%= target_user.admin_role %><% } %></span><% } %>
+    <% if (is_self) { %><span class="adm-pill">This is you</span><% } %>
+  </div>
+</div>
+
+<div class="adm-actions-bar">
+  <% if (!is_self) { %>
+    <button class="adm-btn-secondary" data-action="trigger-reset" data-user-id="<%= target_user._id %>">
+      <i data-lucide="key" style="width:13px;height:13px;"></i>
+      Send password reset
+    </button>
+  <% } %>
+</div>
+
+<div class="adm-detail-grid">
+  <div class="adm-detail-main">
+
+    <!-- Orders -->
+    <div class="adm-card">
+      <div class="adm-card-head">
+        <h3>Orders (<%= orders.length %>)</h3>
+        <span class="adm-card-sub">Total spend: <%= Math.round(total_spend).toLocaleString() %></span>
+      </div>
+      <% if (orders.length === 0) { %>
+        <div class="adm-empty">No orders yet.</div>
+      <% } else { %>
+        <table class="adm-mini-table">
+          <% orders.forEach(o => { %>
+            <tr>
+              <td>
+                <a href="/admin/orders/<%= o.reference %>" class="adm-ref"><%= o.reference %></a>
+                <% if (o.booking_reference && o.booking_reference !== o.reference) { %>
+                  <span class="adm-pnr"><%= o.booking_reference %></span>
+                <% } %>
+              </td>
+              <td class="adm-route">
+                <%= o.slices?.[0]?.origin %> → <%= o.slices?.[o.slices.length-1]?.destination %>
+              </td>
+              <td><span class="adm-status adm-status-<%= o.status %>"><%= o.status.replace('_', ' ') %></span></td>
+              <td class="adm-num"><%= o.total_currency %> <%= Math.round(parseFloat(o.total_amount || 0)) %></td>
+              <td class="adm-time"><%= new Date(o.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %></td>
+            </tr>
+          <% }) %>
+        </table>
+      <% } %>
+    </div>
+
+    <!-- Notifications -->
+    <% if (notifications && notifications.length > 0) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Recent notifications</h3></div>
+        <% notifications.forEach(n => { %>
+          <div class="adm-note">
+            <div class="adm-note-meta">
+              <strong><%= n.title %></strong>
+              <span><%= new Date(n.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+            </div>
+            <div class="adm-note-text"><%= n.body %></div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+
+  </div>
+
+  <aside class="adm-detail-side">
+
+    <!-- Profile -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Profile</h3></div>
+      <div class="adm-kv"><span>Name</span><span><%= target_user.name || '—' %></span></div>
+      <div class="adm-kv"><span>Email</span><span><%= target_user.email %></span></div>
+      <div class="adm-kv"><span>Phone</span><span><%= target_user.phone || '—' %></span></div>
+      <div class="adm-kv"><span>Email verified</span><span><%= target_user.email_verified_at ? 'Yes' : 'No' %></span></div>
+      <div class="adm-kv"><span>Password set</span><span><%= target_user.password_hash ? 'Yes' : 'Magic link only' %></span></div>
+    </div>
+
+    <!-- Saved travelers -->
+    <% if (target_user.saved_travelers && target_user.saved_travelers.length > 0) { %>
+      <div class="adm-card">
+        <div class="adm-card-head"><h3>Saved travelers (<%= target_user.saved_travelers.length %>)</h3></div>
+        <% target_user.saved_travelers.forEach(t => { %>
+          <div class="adm-kv">
+            <span><%= t.title %> <%= t.given_name %> <%= t.family_name %></span>
+            <span class="adm-muted"><%= t.relationship || 'other' %></span>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <!-- Referral info -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Referrals</h3></div>
+      <div class="adm-kv"><span>Code</span><span><%= target_user.referral_code || '—' %></span></div>
+      <div class="adm-kv"><span>Referred friends</span><span><%= target_user.referrals_count || 0 %></span></div>
+      <div class="adm-kv"><span>Active credits</span><span><%= (target_user.credits || []).filter(c => !c.used_at).length %></span></div>
+    </div>
+
+    <!-- Email history -->
+    <div class="adm-card">
+      <div class="adm-card-head"><h3>Recent emails</h3></div>
+      <% if (emails.length === 0) { %>
+        <div class="adm-empty">No emails sent.</div>
+      <% } else { %>
+        <% emails.slice(0, 10).forEach(e => { %>
+          <div class="adm-email-row">
+            <div class="adm-email-subject"><%= e.subject %></div>
+            <div class="adm-email-meta">
+              <span class="adm-email-status adm-email-<%= e.status %>"><%= e.status %></span>
+              <span><%= new Date(e.createdAt).toLocaleString('en-US', { dateStyle: 'short' }) %></span>
+              <% if (e.order_reference) { %><a href="/admin/orders/<%= e.order_reference %>" class="adm-muted"><%= e.order_reference %></a><% } %>
+            </div>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </aside>
+</div>
+
+<%- include('_layout-end') %>

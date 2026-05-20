@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex,nofollow"/>
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/css/main.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="admin-body">
+
+<div class="admin-wrap">
+  <aside class="admin-sidebar">
+    <div class="admin-brand">
+      <a href="/admin" class="admin-brand-link">
+        <span class="admin-brand-mark">FD</span>
+        <div>
+          <div class="admin-brand-name">FlightDojo</div>
+          <div class="admin-brand-tag">Admin</div>
+        </div>
+      </a>
+    </div>
+
+    <nav class="admin-nav">
+      <a href="/admin" class="<%= active_section === 'dashboard' ? 'active' : '' %>">
+        <i data-lucide="layout-dashboard" style="width:14px;height:14px;"></i>
+        Dashboard
+      </a>
+      <a href="/admin/orders" class="<%= active_section === 'orders' ? 'active' : '' %>">
+        <i data-lucide="ticket" style="width:14px;height:14px;"></i>
+        Orders
+      </a>
+      <a href="/admin/users" class="<%= active_section === 'users' ? 'active' : '' %>">
+        <i data-lucide="users" style="width:14px;height:14px;"></i>
+        Users
+      </a>
+      <a href="/admin/emails" class="<%= active_section === 'emails' ? 'active' : '' %>">
+        <i data-lucide="mail" style="width:14px;height:14px;"></i>
+        Emails
+      </a>
+
+      <div class="admin-nav-divider">Coming soon</div>
+      <a class="admin-nav-disabled" title="Tier C — coming soon">
+        <i data-lucide="user-cog" style="width:14px;height:14px;"></i>
+        Admin team
+      </a>
+      <a class="admin-nav-disabled" title="Tier C — coming soon">
+        <i data-lucide="star" style="width:14px;height:14px;"></i>
+        Saved searches
+      </a>
+      <a class="admin-nav-disabled" title="Tier C — coming soon">
+        <i data-lucide="plus-square" style="width:14px;height:14px;"></i>
+        Manual booking
+      </a>
+      <a class="admin-nav-disabled" title="Tier C — coming soon">
+        <i data-lucide="download" style="width:14px;height:14px;"></i>
+        Exports
+      </a>
+
+      <div class="admin-nav-footer">
+        <a href="/account" class="admin-nav-customer">
+          <i data-lucide="arrow-left" style="width:13px;height:13px;"></i>
+          Customer view
+        </a>
+        <a href="/logout">
+          <i data-lucide="log-out" style="width:13px;height:13px;"></i>
+          Sign out
+        </a>
+      </div>
+    </nav>
+  </aside>
+
+  <main class="admin-main">
+    <header class="admin-topbar">
+      <div class="admin-topbar-user">
+        Signed in as <strong><%= user.email %></strong><% if (user.admin_role) { %> · <span class="admin-role-pill"><%= user.admin_role %></span><% } %>
+      </div>
+    </header>
+    <div class="admin-content">

@@ -1,0 +1,108 @@
+<%- include('_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>Orders</h1>
+  <p class="adm-page-sub"><%= total.toLocaleString() %> total in this view</p>
+</div>
+
+<!-- Filters + search -->
+<div class="adm-toolbar">
+  <div class="adm-tabs">
+    <a href="/admin/orders?filter=all" class="adm-tab <%= filter === 'all' ? 'active' : '' %>">
+      All <span class="adm-tab-count"><%= summary.all || 0 %></span>
+    </a>
+    <a href="/admin/orders?filter=awaiting" class="adm-tab <%= filter === 'awaiting' ? 'active' : '' %> <%= summary.awaiting > 0 ? 'adm-tab-urgent' : '' %>">
+      Awaiting ticketing <span class="adm-tab-count"><%= summary.awaiting || 0 %></span>
+    </a>
+    <a href="/admin/orders?filter=ticketed" class="adm-tab <%= filter === 'ticketed' ? 'active' : '' %>">
+      Ticketed <span class="adm-tab-count"><%= summary.ticketed || 0 %></span>
+    </a>
+    <a href="/admin/orders?filter=completed" class="adm-tab <%= filter === 'completed' ? 'active' : '' %>">
+      Completed <span class="adm-tab-count"><%= summary.completed || 0 %></span>
+    </a>
+    <a href="/admin/orders?filter=refunded" class="adm-tab <%= filter === 'refunded' ? 'active' : '' %>">
+      Refunded
+    </a>
+    <a href="/admin/orders?filter=failed" class="adm-tab <%= filter === 'failed' ? 'active' : '' %>">
+      Failed <span class="adm-tab-count"><%= summary.failed || 0 %></span>
+    </a>
+  </div>
+
+  <form method="get" class="adm-search-form">
+    <input type="hidden" name="filter" value="<%= filter %>"/>
+    <i data-lucide="search" style="width:13px;height:13px;"></i>
+    <input type="text" name="q" placeholder="Search ref, PNR, email, name, phone…" value="<%= search %>"/>
+    <% if (search) { %><a href="/admin/orders?filter=<%= filter %>" class="adm-search-clear">×</a><% } %>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="adm-card adm-card-flush">
+  <% if (orders.length === 0) { %>
+    <div class="adm-empty adm-empty-large">
+      <i data-lucide="package-x" style="width:36px;height:36px;color:var(--text-muted);"></i>
+      <p>No orders match this view.</p>
+    </div>
+  <% } else { %>
+    <table class="adm-table">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Route</th>
+          <th>Customer</th>
+          <th>Pax</th>
+          <th>Total</th>
+          <th>Status</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% orders.forEach(o => { %>
+          <tr onclick="window.location.href='/admin/orders/<%= o.reference %>'" class="adm-row-link">
+            <td>
+              <div class="adm-ref"><%= o.reference %></div>
+              <% if (o.booking_reference && o.booking_reference !== o.reference) { %>
+                <div class="adm-pnr"><i data-lucide="plane" style="width:9px;height:9px;"></i> <%= o.booking_reference %></div>
+              <% } %>
+              <% if (o.refunds && o.refunds.length > 0) { %>
+                <div class="adm-pill adm-pill-refund">↩ refund</div>
+              <% } %>
+            </td>
+            <td class="adm-route">
+              <%= o.slices?.[0]?.origin || '?' %> → <%= o.slices?.[o.slices.length-1]?.destination || '?' %>
+              <% if (o.slices?.[0]?.departure_date) { %>
+                <div class="adm-route-date"><%= o.slices[0].departure_date %></div>
+              <% } %>
+            </td>
+            <td>
+              <div class="adm-customer-name"><%= o.passengers?.[0] ? (o.passengers[0].given_name + ' ' + o.passengers[0].family_name) : '—' %></div>
+              <div class="adm-customer-email"><%= o.contact_email %></div>
+            </td>
+            <td class="adm-num"><%= o.passenger_count || (o.passengers?.length || 1) %></td>
+            <td class="adm-num adm-bold"><%= o.total_currency %> <%= Math.round(parseFloat(o.total_amount || 0)) %></td>
+            <td><span class="adm-status adm-status-<%= o.status %>"><%= o.status.replace('_', ' ') %></span></td>
+            <td class="adm-time">
+              <%= new Date(o.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %>
+              <div class="adm-time-sub"><%= new Date(o.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) %></div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<!-- Pagination -->
+<% if (totalPages > 1) { %>
+  <div class="adm-pagination">
+    <% if (page > 1) { %>
+      <a href="?filter=<%= filter %>&q=<%= encodeURIComponent(search) %>&page=<%= page - 1 %>">← Previous</a>
+    <% } %>
+    <span class="adm-page-info">Page <%= page %> of <%= totalPages %></span>
+    <% if (page < totalPages) { %>
+      <a href="?filter=<%= filter %>&q=<%= encodeURIComponent(search) %>&page=<%= page + 1 %>">Next →</a>
+    <% } %>
+  </div>
+<% } %>
+
+<%- include('_layout-end') %>

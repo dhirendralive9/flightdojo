@@ -1,0 +1,118 @@
+<%- include('_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>Dashboard</h1>
+  <p class="adm-page-sub">Operations at a glance.</p>
+</div>
+
+<!-- Top-priority queue -->
+<% if (stats.awaitingCount > 0) { %>
+  <div class="adm-alert">
+    <div class="adm-alert-icon"><i data-lucide="alert-circle" style="width:18px;height:18px;"></i></div>
+    <div class="adm-alert-body">
+      <div class="adm-alert-title"><%= stats.awaitingCount %> order<%= stats.awaitingCount === 1 ? '' : 's' %> awaiting ticketing</div>
+      <div class="adm-alert-sub">Customer has paid; PNR not yet issued. Action required.</div>
+    </div>
+    <a href="/admin/orders?filter=awaiting" class="adm-btn-primary">Review queue →</a>
+  </div>
+<% } %>
+
+<!-- Stat cards -->
+<div class="adm-stat-grid">
+  <div class="adm-stat-card">
+    <div class="adm-stat-label">Today</div>
+    <div class="adm-stat-value"><%= stats.todayCount %></div>
+    <div class="adm-stat-sub">bookings</div>
+    <% if (stats.todayRevenue && stats.todayRevenue.length > 0) { %>
+      <% stats.todayRevenue.forEach(r => { %>
+        <div class="adm-stat-revenue"><%= r._id %> <%= Math.round(r.total).toLocaleString() %></div>
+      <% }) %>
+    <% } %>
+  </div>
+  <div class="adm-stat-card">
+    <div class="adm-stat-label">Last 7 days</div>
+    <div class="adm-stat-value"><%= stats.sevenDayCount %></div>
+    <div class="adm-stat-sub">bookings</div>
+    <% if (stats.sevenDayRevenue && stats.sevenDayRevenue.length > 0) { %>
+      <% stats.sevenDayRevenue.forEach(r => { %>
+        <div class="adm-stat-revenue"><%= r._id %> <%= Math.round(r.total).toLocaleString() %></div>
+      <% }) %>
+    <% } %>
+  </div>
+  <div class="adm-stat-card">
+    <div class="adm-stat-label">Last 30 days</div>
+    <div class="adm-stat-value"><%= stats.thirtyDayCount %></div>
+    <div class="adm-stat-sub">bookings</div>
+    <% if (stats.thirtyDayRevenue && stats.thirtyDayRevenue.length > 0) { %>
+      <% stats.thirtyDayRevenue.forEach(r => { %>
+        <div class="adm-stat-revenue"><%= r._id %> <%= Math.round(r.total).toLocaleString() %></div>
+      <% }) %>
+    <% } %>
+  </div>
+  <div class="adm-stat-card">
+    <div class="adm-stat-label">Users</div>
+    <div class="adm-stat-value"><%= stats.totalUsers.toLocaleString() %></div>
+    <div class="adm-stat-sub">total · <%= stats.newUsersToday %> today</div>
+  </div>
+  <div class="adm-stat-card">
+    <div class="adm-stat-label">Refunds (30d)</div>
+    <div class="adm-stat-value"><%= stats.refundsLast30.count || 0 %></div>
+    <div class="adm-stat-sub">total refunded amount: <%= Math.round(stats.refundsLast30.total || 0).toLocaleString() %></div>
+  </div>
+  <div class="adm-stat-card <%= stats.emailFailures > 0 ? 'adm-stat-warn' : '' %>">
+    <div class="adm-stat-label">Email failures (24h)</div>
+    <div class="adm-stat-value"><%= stats.emailFailures %></div>
+    <div class="adm-stat-sub"><a href="/admin/emails?status=failed">View log →</a></div>
+  </div>
+</div>
+
+<div class="adm-two-col">
+  <!-- Recent orders -->
+  <div class="adm-card">
+    <div class="adm-card-head">
+      <h3>Recent orders</h3>
+      <a href="/admin/orders" class="adm-card-cta">All orders →</a>
+    </div>
+    <% if (recentOrders.length === 0) { %>
+      <div class="adm-empty">No orders yet.</div>
+    <% } else { %>
+      <table class="adm-mini-table">
+        <% recentOrders.forEach(o => { %>
+          <tr>
+            <td>
+              <a href="/admin/orders/<%= o.reference %>" class="adm-ref"><%= o.reference %></a>
+              <% if (o.booking_reference && o.booking_reference !== o.reference) { %>
+                <span class="adm-pnr"><%= o.booking_reference %></span>
+              <% } %>
+            </td>
+            <td class="adm-route">
+              <%= o.slices?.[0]?.origin || '?' %> → <%= o.slices?.[o.slices.length - 1]?.destination || '?' %>
+            </td>
+            <td><span class="adm-status adm-status-<%= o.status %>"><%= o.status.replace('_', ' ') %></span></td>
+            <td class="adm-num"><%= o.total_currency %> <%= Math.round(parseFloat(o.total_amount || 0)) %></td>
+            <td class="adm-time"><%= new Date(o.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) %></td>
+          </tr>
+        <% }) %>
+      </table>
+    <% } %>
+  </div>
+
+  <!-- Top routes -->
+  <div class="adm-card">
+    <div class="adm-card-head">
+      <h3>Top routes (30d)</h3>
+    </div>
+    <% if (topRoutes.length === 0) { %>
+      <div class="adm-empty">No data yet.</div>
+    <% } else { %>
+      <% topRoutes.forEach(r => { %>
+        <div class="adm-route-row">
+          <span class="adm-route-iata"><%= r._id.o %> → <%= r._id.d %></span>
+          <span class="adm-route-count"><%= r.count %> bookings</span>
+        </div>
+      <% }) %>
+    <% } %>
+  </div>
+</div>
+
+<%- include('_layout-end') %>

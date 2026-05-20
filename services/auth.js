@@ -145,6 +145,38 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Gate admin routes. Must be logged in AND have is_admin=true.
+function requireAdmin(req, res, next) {
+  if (!req.user) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(401).json({ error: 'auth_required' });
+    }
+    return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
+  }
+  if (!req.user.is_admin) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ error: 'admin_required' });
+    }
+    return res.status(403).render('404', { title: 'Forbidden — FlightDojo' });
+  }
+  // Track last-seen for admin
+  req.user.admin_last_seen_at = new Date();
+  req.user.save().catch(() => {});
+  next();
+}
+
+// Role-gating helper for narrower access (used inside admin routes).
+// Owner can do everything, manager can do most things, agent does daily ops, viewer is read-only.
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user?.is_admin) return res.status(403).json({ error: 'admin_required' });
+    if (roles.length === 0) return next();
+    const role = req.user.admin_role || 'agent';
+    if (role === 'owner' || roles.includes(role)) return next();
+    return res.status(403).json({ error: `requires_role: ${roles.join(' or ')}` });
+  };
+}
+
 // Load the current user (if any) into res.locals.user for use in templates.
 // Doesn't enforce auth — just attaches when present.
 async function attachUser(req, res, next) {
@@ -171,5 +203,7 @@ module.exports = {
   consumePasswordReset,
   linkOrdersToUser,
   requireAuth,
+  requireAdmin,
+  requireRole,
   attachUser
 };

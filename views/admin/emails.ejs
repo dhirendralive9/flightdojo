@@ -1,0 +1,86 @@
+<%- include('_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>Email log</h1>
+  <p class="adm-page-sub"><%= total.toLocaleString() %> total in this view</p>
+</div>
+
+<div class="adm-toolbar">
+  <div class="adm-tabs">
+    <a href="?status=all<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= status === 'all' ? 'active' : '' %>">
+      All
+    </a>
+    <a href="?status=accepted<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= status === 'accepted' ? 'active' : '' %>">
+      Accepted <span class="adm-tab-count"><%= summary.accepted || 0 %></span>
+    </a>
+    <a href="?status=failed<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= status === 'failed' ? 'active' : '' %> <%= summary.failed > 0 ? 'adm-tab-urgent' : '' %>">
+      Failed <span class="adm-tab-count"><%= summary.failed || 0 %></span>
+    </a>
+    <a href="?status=rejected<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= status === 'rejected' ? 'active' : '' %>">
+      Rejected <span class="adm-tab-count"><%= summary.rejected || 0 %></span>
+    </a>
+    <a href="?status=bounced<%= search ? '&q=' + encodeURIComponent(search) : '' %>" class="adm-tab <%= status === 'bounced' ? 'active' : '' %>">
+      Bounced
+    </a>
+  </div>
+  <form method="get" class="adm-search-form">
+    <input type="hidden" name="status" value="<%= status %>"/>
+    <i data-lucide="search" style="width:13px;height:13px;"></i>
+    <input type="text" name="q" placeholder="Search recipient, subject, order…" value="<%= search %>"/>
+    <% if (search) { %><a href="/admin/emails?status=<%= status %>" class="adm-search-clear">×</a><% } %>
+  </form>
+</div>
+
+<div class="adm-card adm-card-flush">
+  <% if (emails.length === 0) { %>
+    <div class="adm-empty adm-empty-large">No emails match.</div>
+  <% } else { %>
+    <table class="adm-table">
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th>To</th>
+          <th>Template</th>
+          <th>Status</th>
+          <th>Order</th>
+          <th>Sent</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% emails.forEach(e => { %>
+          <tr>
+            <td>
+              <div class="adm-email-subject"><%= e.subject %></div>
+              <% if (e.error) { %><div class="adm-email-error"><%= e.error %></div><% } %>
+            </td>
+            <td><%= e.to %></td>
+            <td><span class="adm-pill"><%= e.template || 'unknown' %></span></td>
+            <td><span class="adm-email-status adm-email-<%= e.status %>"><%= e.status %></span></td>
+            <td>
+              <% if (e.order_reference) { %>
+                <a href="/admin/orders/<%= e.order_reference %>" class="adm-ref-small"><%= e.order_reference %></a>
+              <% } else { %>—<% } %>
+            </td>
+            <td class="adm-time"><%= new Date(e.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></td>
+            <td>
+              <% if (['failed', 'rejected'].includes(e.status)) { %>
+                <button class="adm-email-resend" data-resend="<%= e._id %>">Resend</button>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<% if (totalPages > 1) { %>
+  <div class="adm-pagination">
+    <% if (page > 1) { %><a href="?status=<%= status %>&q=<%= encodeURIComponent(search) %>&page=<%= page - 1 %>">← Previous</a><% } %>
+    <span class="adm-page-info">Page <%= page %> of <%= totalPages %></span>
+    <% if (page < totalPages) { %><a href="?status=<%= status %>&q=<%= encodeURIComponent(search) %>&page=<%= page + 1 %>">Next →</a><% } %>
+  </div>
+<% } %>
+
+<%- include('_layout-end') %>

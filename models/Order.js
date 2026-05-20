@@ -114,6 +114,46 @@ const orderSchema = new mongoose.Schema({
 
   // Linked user (set on signup or future order with matching email)
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
+
+  // ─── ADMIN / OPS FIELDS ───
+  // Internal notes from ops team — NOT shown to customer
+  internal_notes: [{
+    text: { type: String, required: true, maxlength: 2000 },
+    author_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    author_email: String,   // denormalized in case user is removed
+    created_at: { type: Date, default: Date.now }
+  }],
+
+  // Audit log of every status change / refund / action
+  audit_log: [{
+    action: String,        // e.g. 'marked_ticketed', 'refund_issued', 'note_added', 'email_sent'
+    actor_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    actor_email: String,
+    payload: mongoose.Schema.Types.Mixed,   // freeform context
+    created_at: { type: Date, default: Date.now }
+  }],
+
+  // Stripe refund tracking
+  refunds: [{
+    stripe_refund_id: String,
+    amount: String,             // refund amount in major units (e.g. "150.00")
+    currency: String,
+    reason: String,             // ops-supplied category
+    notes: String,              // ops-supplied notes
+    status: String,             // 'pending' | 'succeeded' | 'failed'
+    issued_by_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    issued_by_email: String,
+    issued_at: { type: Date, default: Date.now }
+  }],
+  total_refunded: { type: String, default: '0.00' },
+
+  // When ops marks the order ticketed
+  ticketed_at: Date,
+  ticketed_by_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ticketed_by_email: String,
+
+  // When trip is completed (post-travel)
+  completed_at: Date,
   // Optional group (so all group members can see this trip in their dashboard)
   group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', index: true, default: null },
 

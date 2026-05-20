@@ -52,6 +52,15 @@ const userSchema = new mongoose.Schema({
   last_login_at: Date,
   login_count: { type: Number, default: 0 },
 
+  // ─── ADMIN ───
+  is_admin: { type: Boolean, default: false, index: true },
+  admin_role: {
+    type: String,
+    enum: ['owner', 'manager', 'agent', 'viewer', null],
+    default: null
+  },
+  admin_last_seen_at: Date,
+
   // ─── REFERRALS ───
   // Auto-generated unique code (e.g. "DHIR-7K2X"). Set in pre-save hook below.
   referral_code: { type: String, unique: true, sparse: true, index: true },
@@ -212,7 +221,9 @@ userSchema.methods.toSafeJSON = function() {
     referral_code: this.referral_code,
     referred_by: this.referred_by,
     referrals_count: this.referrals_count,
-    credits_active_count: (this.credits || []).filter(c => !c.used_at).length
+    credits_active_count: (this.credits || []).filter(c => !c.used_at).length,
+    is_admin: this.is_admin || false,
+    admin_role: this.admin_role || null
   };
 };
 

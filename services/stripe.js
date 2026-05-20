@@ -156,12 +156,38 @@ async function detachPaymentMethod(paymentMethodId) {
   }
 }
 
+async function refundPaymentIntent(paymentIntentId, amount, reason) {
+  if (!stripe) return { ok: false, error: 'Stripe not configured' };
+  if (!paymentIntentId) return { ok: false, error: 'No payment intent ID' };
+  try {
+    const params = {
+      payment_intent: paymentIntentId,
+      metadata: { reason: reason || 'requested_by_customer' }
+    };
+    if (amount && parseFloat(amount) > 0) {
+      params.amount = Math.round(parseFloat(amount) * 100);
+    }
+    const refund = await stripe.refunds.create(params);
+    return {
+      ok: true,
+      refund_id: refund.id,
+      amount: (refund.amount / 100).toFixed(2),
+      currency: refund.currency.toUpperCase(),
+      status: refund.status
+    };
+  } catch (err) {
+    console.error('Refund failed:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = {
   createPaymentIntent,
   retrievePaymentIntent,
   constructWebhookEvent,
   listPaymentMethods,
   detachPaymentMethod,
+  refundPaymentIntent,
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   hasRealKey
 };
