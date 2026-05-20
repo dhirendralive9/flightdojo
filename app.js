@@ -543,6 +543,44 @@ async function handleStripeWebhook(req, res) {
   res.json({ received: true });
 }
 
+// Diagnostic endpoint — send a test confirmation email to verify SMTP is working.
+// Usage: GET /admin/test-email?to=you@example.com
+// Protect this in production with an admin key, or remove it entirely.
+app.get('/admin/test-email', async (req, res) => {
+  const to = req.query.to;
+  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+    return res.status(400).json({ error: 'Pass ?to=email@example.com' });
+  }
+  console.log(`🧪 Test email requested → ${to}`);
+  const fakeOrder = {
+    reference: 'FD-TEST-' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+    booking_reference: 'FD-TEST-1234',
+    contact_email: to,
+    contact_phone: '+0000000000',
+    total_amount: '199.00',
+    total_currency: 'EUR',
+    base_amount: '150.00',
+    tax_amount: '49.00',
+    carrier: 'Test Airways',
+    carrier_iata: 'TA',
+    passenger_count: 1,
+    passengers: [{ title: 'mr', given_name: 'Test', family_name: 'User', type: 'adult' }],
+    slices: [{
+      origin: 'DEL', destination: 'LHR', duration: '9h 30m',
+      departure_date: '2026-09-15', stops: 0,
+      origin_name: 'Delhi', destination_name: 'London'
+    }]
+  };
+  const sent = await mailer.sendBookingConfirmation(fakeOrder);
+  res.json({
+    sent,
+    to,
+    message: sent
+      ? 'Email sent — check inbox (and spam folder). If nothing arrives in 5 mins, check Brevo dashboard → Statistics → Email Activity.'
+      : 'Send failed. Check the server log for the SMTP error.'
+  });
+});
+
 // ─── STATIC PAGES ────────────────────────────────────────
 app.get('/about', (req, res) => res.render('about', { title: 'About — FlightDojo' }));
 app.get('/careers', (req, res) => res.render('careers', { title: 'Careers — FlightDojo' }));

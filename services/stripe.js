@@ -11,6 +11,27 @@ const stripe = hasRealKey
   ? new Stripe(key)
   : null;
 
+// On boot: identify which Stripe account this key belongs to.
+// This is the #1 reason "I see no payments in my dashboard" — wrong account.
+// The dashboard you should be looking at: https://dashboard.stripe.com/{account_id}/test/payments
+if (stripe) {
+  stripe.accounts.retrieve()
+    .then(acct => {
+      const mode = key.startsWith('sk_test_') ? 'TEST' : 'LIVE';
+      console.log(`💳 Stripe ${mode} mode connected:`);
+      console.log(`   Account ID: ${acct.id}`);
+      console.log(`   Business:   ${acct.business_profile?.name || acct.settings?.dashboard?.display_name || '(unnamed)'}`);
+      console.log(`   Country:    ${acct.country}`);
+      console.log(`   Dashboard:  https://dashboard.stripe.com/${acct.id}/test/payments`);
+      console.log(`   ⚠  If you don't see payments in your dashboard, you're probably`);
+      console.log(`      looking at a DIFFERENT account or sandbox than this account ID.`);
+    })
+    .catch(err => {
+      console.error('💳 ✗ Stripe key validation FAILED:', err.message);
+      console.error('   Your STRIPE_SECRET_KEY is rejected by Stripe. Double-check it.');
+    });
+}
+
 async function createPaymentIntent({ amount, currency, metadata, receipt_email }) {
   if (!stripe) {
     return {
@@ -23,7 +44,7 @@ async function createPaymentIntent({ amount, currency, metadata, receipt_email }
     };
   }
 
-  return stripe.paymentIntents.create({
+  const pi = await stripe.paymentIntents.create({
     amount: Math.round(amount * 100), // dollars/euros → minor units
     currency: (currency || 'eur').toLowerCase(),
     payment_method_types: ['card'],
@@ -31,6 +52,8 @@ async function createPaymentIntent({ amount, currency, metadata, receipt_email }
     receipt_email: receipt_email || undefined,
     description: metadata?.description || 'FlightDojo booking'
   });
+  console.log(`💳 PaymentIntent created: ${pi.id} · ${pi.currency.toUpperCase()} ${(pi.amount/100).toFixed(2)} · order ${metadata?.order_reference || 'unknown'}`);
+  return pi;
 }
 
 async function retrievePaymentIntent(id) {

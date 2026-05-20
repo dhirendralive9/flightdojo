@@ -9,20 +9,32 @@ const from = process.env.SMTP_FROM || 'FlightDojo <noreply@flightdojo.it.com>';
 const configured = host && user && pass && !user.includes('REPLACE_ME');
 
 let transporter = null;
+let transporterReady = false;
 
 if (configured) {
   transporter = nodemailer.createTransport({
     host,
     port,
     secure: port === 465,
-    auth: { user, pass }
+    auth: { user, pass },
+    // Helpful diagnostics
+    logger: false,
+    debug: false
   });
-  transporter.verify((err) => {
-    if (err) console.warn('⚠  SMTP verify failed:', err.message);
-    else console.log(`📬 SMTP transport ready (${host}:${port})`);
+  transporter.verify((err, success) => {
+    if (err) {
+      console.error('📬 ✗ SMTP verify FAILED:', err.message);
+      console.error('   Host:', host, 'Port:', port, 'User:', user);
+      console.error('   Emails will NOT be sent until SMTP is fixed.');
+      transporterReady = false;
+    } else {
+      console.log(`📬 ✓ SMTP transport ready (${host}:${port}, from: ${from})`);
+      transporterReady = true;
+    }
   });
 } else {
   console.warn('⚠  SMTP not configured — emails will be logged to console only');
+  console.warn('   Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in .env');
 }
 
 // Inline-styled HTML (most email clients strip <style> tags).
@@ -262,14 +274,28 @@ async function sendBookingConfirmation(order) {
   }
 
   try {
+    console.log(`📬 → Sending confirmation to ${to} via ${host}…`);
     const info = await transporter.sendMail({
       from, to, subject, html,
-      text: `Your FlightDojo booking is confirmed.\n\nReference: ${order.booking_reference || order.reference}\nTotal: ${order.total_currency} ${order.total_amount}\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/booking/${order.reference}\n\n— FlightDojo`
+      text: `Your FlightDojo booking is confirmed.\n\nReference: ${order.booking_reference || order.reference}\nTotal: ${order.total_currency} ${order.total_amount}\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/booking/${order.reference}\n\n— FlightDojo`,
+      // Plain-text fallback header so providers can tell this is transactional
+      headers: { 'X-FlightDojo-Order': order.reference }
     });
-    console.log('📬 ✓ Confirmation sent:', info.messageId, '→', to);
+    console.log('📬 ✓ Confirmation accepted by SMTP server:');
+    console.log('   messageId:', info.messageId);
+    console.log('   response: ', info.response);
+    console.log('   accepted: ', info.accepted);
+    console.log('   rejected: ', info.rejected);
+    if (info.rejected && info.rejected.length > 0) {
+      console.error('📬 ⚠  Some recipients were REJECTED:', info.rejected);
+      return false;
+    }
     return true;
   } catch (err) {
-    console.error('📬 ✗ Confirmation send failed:', err.message, 'to:', to);
+    console.error('📬 ✗ Confirmation send FAILED:', err.message);
+    if (err.response) console.error('   SMTP response:', err.response);
+    if (err.responseCode) console.error('   SMTP code:', err.responseCode);
+    if (err.code) console.error('   Error code:', err.code);
     return false;
   }
 }

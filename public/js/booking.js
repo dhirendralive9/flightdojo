@@ -268,12 +268,18 @@
     if (intentRequested) return;
     if (passengerFieldsValid()) {
       requestIntent();
+    } else {
+      // Clear stale error messages once the user starts editing again
+      hideMessage();
     }
   }
 
   async function requestIntent() {
     if (intentRequested) return;
     intentRequested = true;
+
+    // Clear any previous error message — we're trying again
+    hideMessage();
 
     // Defensive: sync every DOB hidden field from its segments before reading FormData.
     // This catches any race condition where the segment input handler hasn't yet written.
@@ -521,6 +527,13 @@
     el.textContent = msg;
     el.className = 'bk-payment-message bk-message-' + (type || 'info');
     el.style.display = 'block';
+  }
+
+  function hideMessage() {
+    const el = document.getElementById('paymentMessage');
+    if (!el) return;
+    el.textContent = '';
+    el.style.display = 'none';
   }
 
   function showBlockedScreen(data) {
