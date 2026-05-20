@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
-const { searchOffers, getOffer } = require('./services/duffel');
+const { searchOffers, getOffer, getSeatMaps } = require('./services/duffel');
 const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
@@ -251,15 +251,72 @@ app.get('/api/airports/search', (req, res) => {
 
 const countries = require('./services/countries');
 
+// Affiliate configuration — links populated from .env, falls back to disabled
+const affiliateConfig = {
+  airalo: {
+    enabled: !!process.env.AIRALO_AFFILIATE_URL,
+    url: process.env.AIRALO_AFFILIATE_URL || '',
+    headline: 'eSIM for your trip',
+    sub: 'Stay connected with mobile data the moment you land.',
+    cta: 'Get eSIM'
+  },
+  lounges: {
+    enabled: !!process.env.LOUNGES_AFFILIATE_URL,
+    url: process.env.LOUNGES_AFFILIATE_URL || '',
+    headline: 'Airport lounge access',
+    sub: 'Skip the gate crowds with Wi-Fi, food, and quiet.',
+    cta: 'Browse lounges'
+  },
+  hotels: {
+    enabled: !!process.env.HOTELS_AFFILIATE_URL,
+    url: process.env.HOTELS_AFFILIATE_URL || '',
+    headline: 'Hotels at your destination',
+    sub: 'Compare 1M+ properties with free cancellation.',
+    cta: 'Find hotels'
+  },
+  transfers: {
+    enabled: !!process.env.TRANSFERS_AFFILIATE_URL,
+    url: process.env.TRANSFERS_AFFILIATE_URL || '',
+    headline: 'Airport transfers',
+    sub: 'Pre-book a private ride from the airport.',
+    cta: 'Book transfer'
+  },
+  insurance: {
+    enabled: !!process.env.INSURANCE_AFFILIATE_URL,
+    url: process.env.INSURANCE_AFFILIATE_URL || 'https://www.xcover.com/en/insurance/travel',
+    headline: 'Travel insurance',
+    sub: 'Protect your trip against cancellation, delays, and medical emergencies.',
+    cta: 'Get a quote',
+    note: 'Coverage is provided by our partner. FlightDojo is not the insurer.'
+  }
+};
+
 // Step 1: Passenger details form
 app.get('/book/:offerId', async (req, res) => {
   try {
-    const { offer } = await getOffer(req.params.offerId);
+    // Fetch offer WITH services so we can show available bags/etc inline
+    const { offer } = await getOffer(req.params.offerId, { withServices: true });
     if (!offer) return res.status(404).render('404', { title: '404 — FlightDojo' });
+
+    // Try to fetch seat maps (may not be available for low-cost carriers — that's OK)
+    let seatMaps = [];
+    let seatMapsUnavailable = false;
+    try {
+      const smResult = await getSeatMaps(req.params.offerId);
+      seatMaps = smResult.seat_maps || [];
+      seatMapsUnavailable = !!smResult.unavailable;
+    } catch (err) {
+      console.warn('Seat-map fetch silently failed:', err.message);
+      seatMapsUnavailable = true;
+    }
+
     res.render('booking-form', {
       title: `Book ${offer.slices[0]?.origin} → ${offer.slices[0]?.destination} — FlightDojo`,
       offer,
       countries,
+      seat_maps: seatMaps,
+      seat_maps_unavailable: seatMapsUnavailable,
+      affiliates: affiliateConfig,
       origin_info: airportsService.byIata(offer.slices[0]?.origin),
       destination_info: airportsService.byIata(offer.slices[0]?.destination)
     });
@@ -267,6 +324,23 @@ app.get('/book/:offerId', async (req, res) => {
     console.error('Book page error:', err);
     res.status(500).render('404', { title: 'Error — FlightDojo' });
   }
+});
+
+// Track an affiliate click — fire-and-forget, used purely for analytics
+app.post('/api/affiliate/click', async (req, res) => {
+  const { partner, order_reference } = req.body || {};
+  if (!partner) return res.json({ ok: false });
+  console.log(`🔗 Affiliate click: ${partner}${order_reference ? ' · order ' + order_reference : ''}`);
+  // If we have an order reference, attach the click to it
+  if (order_reference) {
+    try {
+      await Order.updateOne(
+        { reference: order_reference },
+        { $push: { 'addons.affiliate_clicks': { partner, clicked_at: new Date() } } }
+      );
+    } catch (e) { /* DB optional */ }
+  }
+  res.json({ ok: true });
 });
 
 // Step 2: Submit passenger details → ProxyCheck → Create Order + PaymentIntent
@@ -389,6 +463,38 @@ app.post('/api/book/intent', async (req, res) => {
       phone: normalizedContactPhone
     };
 
+    // ───── Add-ons (seats, bags, prefs) — optional, no validation beyond shape ─────
+    const addonsRaw = req.body.addons || {};
+    const addons = {
+      seats: Array.isArray(addonsRaw.seats) ? addonsRaw.seats.slice(0, 20).map(s => ({
+        passenger_index: parseInt(s.passenger_index, 10) || 0,
+        slice_index: parseInt(s.slice_index, 10) || 0,
+        designator: typeof s.designator === 'string' ? s.designator.slice(0, 6) : null,
+        amount: typeof s.amount === 'string' ? s.amount : '0',
+        currency: typeof s.currency === 'string' ? s.currency.slice(0, 3) : '',
+        service_id: typeof s.service_id === 'string' ? s.service_id.slice(0, 50) : ''
+      })) : [],
+      seat_preference_notes: typeof addonsRaw.seat_preference_notes === 'string'
+        ? addonsRaw.seat_preference_notes.slice(0, 500).trim() : '',
+      bags: Array.isArray(addonsRaw.bags) ? addonsRaw.bags.slice(0, 20).map(b => ({
+        passenger_index: parseInt(b.passenger_index, 10) || 0,
+        kind: ['checked', 'carry_on'].includes(b.kind) ? b.kind : 'checked',
+        max_weight_kg: parseFloat(b.max_weight_kg) || null,
+        quantity: parseInt(b.quantity, 10) || 1,
+        amount: typeof b.amount === 'string' ? b.amount : '0',
+        currency: typeof b.currency === 'string' ? b.currency.slice(0, 3) : '',
+        service_id: typeof b.service_id === 'string' ? b.service_id.slice(0, 50) : ''
+      })) : [],
+      bag_preference_notes: typeof addonsRaw.bag_preference_notes === 'string'
+        ? addonsRaw.bag_preference_notes.slice(0, 500).trim() : ''
+    };
+
+    // Sum up add-on charges — added to the flight price below
+    const addonsTotal = [...addons.seats, ...addons.bags].reduce(
+      (sum, x) => sum + (parseFloat(x.amount) || 0), 0
+    );
+    addons.total_addons_amount = addonsTotal.toFixed(2);
+
     // ───── SECURITY: ProxyCheck IP gate ─────
     const ip = proxycheck.clientIp(req);
     const proxyResult = await proxycheck.check(ip, 'flightdojo_booking');
@@ -429,9 +535,10 @@ app.post('/api/book/intent', async (req, res) => {
     const { offer } = await getOffer(offer_id);
     if (!offer) return res.status(404).json({ error: 'Offer not found or expired' });
 
-    // Create Order in DB
+    // Create Order in DB. Charge = flight price + add-ons.
     const reference = generateReference();
-    const amount = parseFloat(offer.total_amount);
+    const flightAmount = parseFloat(offer.total_amount);
+    const amount = flightAmount + parseFloat(addons.total_addons_amount);
     const currency = offer.total_currency || 'EUR';
 
     let order;
@@ -440,7 +547,7 @@ app.post('/api/book/intent', async (req, res) => {
         reference,
         status: 'awaiting_payment',
         duffel_offer_id: offer_id,
-        total_amount: offer.total_amount,
+        total_amount: amount.toFixed(2),
         total_currency: currency,
         base_amount: offer.base_amount,
         tax_amount: offer.tax_amount,
@@ -452,11 +559,11 @@ app.post('/api/book/intent', async (req, res) => {
         contact_email,
         contact_phone: normalizedContactPhone,
         billing: cleanedBilling,
+        addons,
         proxy_check: proxyResult
       });
     } catch (err) {
       console.warn('Order persistence skipped:', err.message);
-      // Continue without DB so the demo still works
       order = { reference, _id: null };
     }
 

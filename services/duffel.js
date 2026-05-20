@@ -162,12 +162,100 @@ async function searchOffers({
   return result;
 }
 
-async function getOffer(offerId) {
+async function getOffer(offerId, { withServices = false } = {}) {
   if (!duffel) {
     return { offer: null, error: 'Duffel not configured' };
   }
-  const response = await duffel.offers.get(offerId, { return_available_services: false });
-  return { offer: normalizeOffer(response.data) };
+  const response = await duffel.offers.get(offerId, { return_available_services: withServices });
+  const offer = normalizeOffer(response.data);
+  if (withServices) {
+    offer.available_services = parseAvailableServices(response.data.available_services || []);
+  }
+  return { offer };
+}
+
+// Parse Duffel's `available_services` array into a clean structure we can show
+// in the UI. Services are typed:
+//   - "baggage"  → extra checked bags
+//   - "seat"     → individual seats (we fetch full seat maps separately)
+//   - "cancel_for_any_reason" → cancellation protection
+async function parseAvailableServices(services) {
+  const baggage = [];
+  let cfar = null;
+  for (const s of services) {
+    if (s.type === 'baggage') {
+      baggage.push({
+        id: s.id,
+        type: 'baggage',
+        kind: s.metadata?.type || 'checked',  // 'checked' | 'carry_on'
+        max_weight_kg: s.metadata?.maximum_weight_kg || null,
+        max_pieces: s.maximum_quantity || 1,
+        amount: s.total_amount,
+        currency: s.total_currency,
+        segment_ids: s.segment_ids || [],
+        passenger_ids: s.passenger_ids || []
+      });
+    } else if (s.type === 'cancel_for_any_reason') {
+      cfar = {
+        id: s.id,
+        amount: s.total_amount,
+        currency: s.total_currency,
+        refund_amount: s.metadata?.refund_amount || null
+      };
+    }
+  }
+  return { baggage, cfar };
+}
+
+// Fetch seat maps for an offer. Duffel returns one SeatMap per slice (per direction).
+// Each seat map has cabins → rows → sections → elements (seat, aisle, exit-row, etc).
+// Returns a slimmed structure suitable for rendering in the UI.
+async function getSeatMaps(offerId) {
+  if (!duffel) {
+    return { seat_maps: [], error: 'Duffel not configured' };
+  }
+  try {
+    const response = await duffel.seatMaps.get({ offer_id: offerId });
+    const seatMaps = (response.data || []).map(simplifySeatMap);
+    return { seat_maps: seatMaps };
+  } catch (err) {
+    // 404 = seat selection not available on this offer (common for low-cost carriers)
+    if (err.errors?.some(e => e.code === 'not_found' || e.status === 404)) {
+      return { seat_maps: [], unavailable: true };
+    }
+    console.warn('Duffel seat-map fetch failed:', err.errors || err.message);
+    return { seat_maps: [], error: err.message };
+  }
+}
+
+function simplifySeatMap(sm) {
+  return {
+    id: sm.id,
+    segment_id: sm.segment_id,
+    slice_id: sm.slice_id,
+    cabins: (sm.cabins || []).map(cabin => ({
+      cabin_class: cabin.cabin_class,
+      deck: cabin.deck,
+      aisles: cabin.aisles,
+      wings: cabin.wings,
+      rows: (cabin.rows || []).map(row => ({
+        sections: (row.sections || []).map(section => ({
+          elements: (section.elements || []).map(el => ({
+            type: el.type,                              // 'seat' | 'bassinet' | 'galley' | 'lavatory' | 'exit_row' | 'empty' | 'restricted_seat'
+            designator: el.designator || null,         // e.g. "12A"
+            disclosures: el.disclosures || [],
+            // For seats only:
+            available_services: (el.available_services || []).map(svc => ({
+              id: svc.id,
+              passenger_id: svc.passenger_id,
+              amount: svc.total_amount,
+              currency: svc.total_currency
+            }))
+          }))
+        }))
+      }))
+    }))
+  };
 }
 
 function mockOffers({ origin, destination, depart_date, return_date, passengers }) {
@@ -210,4 +298,4 @@ function mockOffers({ origin, destination, depart_date, return_date, passengers 
   };
 }
 
-module.exports = { searchOffers, getOffer, normalizeOffer };
+module.exports = { searchOffers, getOffer, getSeatMaps, normalizeOffer };

@@ -176,10 +176,91 @@
           </div>
         </section>
 
-        <!-- Step 3: Billing address -->
+        <!-- Step 3: Extras (seats, bags, preferences) -->
         <section class="bk-step" id="step3">
           <div class="bk-step-header">
             <div class="bk-step-num">3</div>
+            <div>
+              <h2 class="bk-step-title">Extras <span class="bk-step-opt">(optional)</span></h2>
+              <p class="bk-step-sub">Pick seats, add bags, or tell us your preferences. Skip if none needed.</p>
+            </div>
+          </div>
+
+          <!-- SEATS subsection -->
+          <div class="bk-extras-block">
+            <div class="bk-extras-head">
+              <i data-lucide="armchair" style="width:14px;height:14px;color:var(--coral);"></i>
+              <span class="bk-extras-title">Seat selection</span>
+            </div>
+
+            <% if (seat_maps && seat_maps.length > 0) { %>
+              <p class="bk-extras-sub">Tap an available seat to select it. Prices shown per seat.</p>
+              <div id="seatMapsContainer" class="bk-seat-maps"
+                   data-seat-maps='<%= JSON.stringify(seat_maps) %>'
+                   data-passenger-count="<%= offer.passenger_count %>"
+                   data-slice-count="<%= offer.slices.length %>">
+                <% offer.slices.forEach((slice, sliceIdx) => { %>
+                  <div class="bk-seat-slice" data-slice-idx="<%= sliceIdx %>">
+                    <div class="bk-seat-slice-head">
+                      <span class="bk-seat-slice-tag"><%= sliceIdx === 0 ? 'Outbound' : 'Return' %></span>
+                      <strong><%= slice.origin %> → <%= slice.destination %></strong>
+                      <span class="bk-seat-slice-date">· <%= slice.departure_date %></span>
+                    </div>
+                    <!-- Seat map gets rendered here by booking.js -->
+                    <div class="bk-seat-map-render" data-slice-render-idx="<%= sliceIdx %>"></div>
+                    <div class="bk-seat-picked" data-slice-picked-idx="<%= sliceIdx %>">
+                      <!-- shows "Passenger 1: 12A · $25" etc -->
+                    </div>
+                  </div>
+                <% }) %>
+              </div>
+            <% } else { %>
+              <p class="bk-extras-sub">
+                <% if (seat_maps_unavailable) { %>
+                  Seat selection isn't shown for this fare. Use the box below to tell us your preferences and we'll request them on your behalf.
+                <% } else { %>
+                  Tell us your seat preferences (window, aisle, extra legroom, etc) and we'll do our best.
+                <% } %>
+              </p>
+              <textarea name="addons[seat_preference_notes]" class="bk-input bk-textarea" rows="2"
+                placeholder="e.g. Aisle seat near the front, please. Two travellers together."></textarea>
+            <% } %>
+          </div>
+
+          <!-- BAGS subsection -->
+          <div class="bk-extras-block">
+            <div class="bk-extras-head">
+              <i data-lucide="luggage" style="width:14px;height:14px;color:var(--coral);"></i>
+              <span class="bk-extras-title">Extra baggage</span>
+            </div>
+
+            <% if (offer.available_services && offer.available_services.baggage && offer.available_services.baggage.length > 0) { %>
+              <p class="bk-extras-sub">Add checked bags per passenger.</p>
+              <div id="bagsContainer" class="bk-bags"
+                   data-bag-options='<%= JSON.stringify(offer.available_services.baggage) %>'
+                   data-passenger-count="<%= offer.passenger_count %>"
+                   data-currency="<%= offer.total_currency %>">
+                <% for (let i = 0; i < offer.passenger_count; i++) { %>
+                  <div class="bk-bag-row" data-bag-pax="<%= i %>">
+                    <div class="bk-bag-pax-label">Passenger <%= i + 1 %></div>
+                    <div class="bk-bag-options" data-bag-options-pax="<%= i %>"></div>
+                  </div>
+                <% } %>
+              </div>
+            <% } else { %>
+              <p class="bk-extras-sub">
+                Baggage allowances aren't priced via this fare. Tell us what bags you'll bring and we'll add them when ticketing if available.
+              </p>
+              <textarea name="addons[bag_preference_notes]" class="bk-input bk-textarea" rows="2"
+                placeholder="e.g. 1 checked bag (23kg) for each passenger + carry-on."></textarea>
+            <% } %>
+          </div>
+        </section>
+
+        <!-- Step 4: Billing address -->
+        <section class="bk-step" id="step4">
+          <div class="bk-step-header">
+            <div class="bk-step-num">4</div>
             <div>
               <h2 class="bk-step-title">Billing address</h2>
               <p class="bk-step-sub">
@@ -243,10 +324,10 @@
           </div>
         </section>
 
-        <!-- Step 4: Payment -->
-        <section class="bk-step" id="step4">
+        <!-- Step 5: Payment -->
+        <section class="bk-step" id="step5">
           <div class="bk-step-header">
-            <div class="bk-step-num">4</div>
+            <div class="bk-step-num">5</div>
             <div>
               <h2 class="bk-step-title">Payment</h2>
               <p class="bk-step-sub">
@@ -353,6 +434,33 @@
           Offer expires <%= new Date(offer.expires_at).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }) %>
         </div>
       </div>
+
+      <!-- Affiliate add-on cards -->
+      <% const enabledAffiliates = Object.entries(affiliates).filter(([_, a]) => a.enabled); %>
+      <% if (enabledAffiliates.length > 0) { %>
+        <div class="bk-affiliates">
+          <div class="bk-affiliates-head">Make your trip easier</div>
+          <% enabledAffiliates.forEach(([key, aff]) => { %>
+            <a href="<%= aff.url %>" target="_blank" rel="noopener nofollow sponsored"
+               class="bk-affiliate-card"
+               data-affiliate="<%= key %>">
+              <div class="bk-affiliate-body">
+                <div class="bk-affiliate-headline"><%= aff.headline %></div>
+                <div class="bk-affiliate-sub"><%= aff.sub %></div>
+                <% if (aff.note) { %><div class="bk-affiliate-note"><%= aff.note %></div><% } %>
+              </div>
+              <div class="bk-affiliate-cta">
+                <%= aff.cta %>
+                <i data-lucide="external-link" style="width:11px;height:11px;"></i>
+              </div>
+            </a>
+          <% }) %>
+          <div class="bk-affiliates-foot">
+            Some links are affiliate referrals. Booking through them helps support FlightDojo at no extra cost to you.
+          </div>
+        </div>
+      <% } %>
+
     </aside>
 
   </div>

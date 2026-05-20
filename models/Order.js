@@ -47,6 +47,37 @@ const billingSchema = new mongoose.Schema({
   phone: String                  // Optional billing phone (often = contact_phone)
 }, { _id: false });
 
+// Customer's seat + bag selections + preference notes for offline ticketing
+const addonsSchema = new mongoose.Schema({
+  seats: [{
+    passenger_index: Number,
+    slice_index: Number,
+    designator: String,        // e.g. "12A", "23F", or null if not pickable
+    amount: String,
+    currency: String,
+    service_id: String         // Duffel service ID for ops reference
+  }],
+  seat_preference_notes: String,
+
+  bags: [{
+    passenger_index: Number,
+    kind: String,              // 'checked' | 'carry_on'
+    max_weight_kg: Number,
+    quantity: Number,
+    amount: String,
+    currency: String,
+    service_id: String
+  }],
+  bag_preference_notes: String,
+
+  affiliate_clicks: [{
+    partner: String,
+    clicked_at: { type: Date, default: Date.now }
+  }],
+
+  total_addons_amount: String
+}, { _id: false });
+
 const proxyCheckSchema = new mongoose.Schema({
   ip: String,
   risk_score: Number,
@@ -113,6 +144,9 @@ const orderSchema = new mongoose.Schema({
   // Billing — cardholder address. Stored both here (for our admin + tax + chargeback
   // defense) and on Stripe (for AVS during payment + receipts).
   billing: billingSchema,
+
+  // Add-ons — seats, bags, preference notes, affiliate clicks
+  addons: { type: addonsSchema, default: () => ({}) },
 
   // Security check
   proxy_check: proxyCheckSchema,

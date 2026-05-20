@@ -23,6 +23,9 @@
 
     setupDobInputs();
     setupBillingPrefill();
+    setupSeatMaps();
+    setupBags();
+    setupAffiliateTracking();
 
     form.addEventListener('submit', onSubmit);
     form.addEventListener('input', onFormChange);
@@ -320,6 +323,258 @@
     billingEmail?.addEventListener('focus', prefillEmail);
   }
 
+  // ─── SEAT MAPS ────────────────────────────────────────────
+  // selectedSeats[sliceIdx] = { passenger_index, designator, amount, currency, service_id }
+  const selectedSeats = {};
+  // Which passenger is currently picking? Default to 0 (passenger 1)
+  let activeSeatPassenger = 0;
+
+  function setupSeatMaps() {
+    const container = document.getElementById('seatMapsContainer');
+    if (!container) return;
+    let maps;
+    try {
+      maps = JSON.parse(container.dataset.seatMaps || '[]');
+    } catch (e) { return; }
+    if (!maps.length) return;
+
+    const passengerCount = parseInt(container.dataset.passengerCount, 10) || 1;
+
+    // For each slice, find its seat map by matching slice_id (Duffel returns
+    // one seat map per segment; we use the first segment of each slice for now).
+    document.querySelectorAll('[data-slice-render-idx]').forEach((el, idx) => {
+      const sliceIdx = parseInt(el.dataset.sliceRenderIdx, 10);
+      // Pick the seat map for this slice — Duffel may return multiple (one per segment).
+      // For simplicity we render the first one matching this slice_id, or just the Nth map.
+      const map = maps[sliceIdx];
+      if (!map) {
+        el.innerHTML = '<div class="bk-seat-na">Seat map not available for this flight.</div>';
+        return;
+      }
+      renderSeatMap(map, el, sliceIdx, passengerCount);
+    });
+
+    // Passenger selector strip at the top of the section
+    if (passengerCount > 1) {
+      const head = document.createElement('div');
+      head.className = 'bk-seat-pax-strip';
+      head.innerHTML = '<span>Choosing for:</span>';
+      for (let i = 0; i < passengerCount; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bk-seat-pax-btn' + (i === 0 ? ' active' : '');
+        btn.dataset.paxIdx = i;
+        btn.textContent = `Passenger ${i + 1}`;
+        btn.addEventListener('click', () => {
+          activeSeatPassenger = i;
+          document.querySelectorAll('.bk-seat-pax-btn').forEach(b =>
+            b.classList.toggle('active', parseInt(b.dataset.paxIdx, 10) === i));
+        });
+        head.appendChild(btn);
+      }
+      container.insertBefore(head, container.firstChild);
+    }
+  }
+
+  function renderSeatMap(map, mountEl, sliceIdx, passengerCount) {
+    mountEl.innerHTML = '';
+    map.cabins.forEach(cabin => {
+      const cabinEl = document.createElement('div');
+      cabinEl.className = 'bk-cabin';
+      const cabinLabel = document.createElement('div');
+      cabinLabel.className = 'bk-cabin-label';
+      cabinLabel.textContent = (cabin.cabin_class || 'economy').toUpperCase();
+      cabinEl.appendChild(cabinLabel);
+
+      cabin.rows.forEach((row, rowIdx) => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'bk-seat-row';
+        row.sections.forEach((section, sectionIdx) => {
+          if (sectionIdx > 0) {
+            const aisle = document.createElement('div');
+            aisle.className = 'bk-seat-aisle';
+            rowEl.appendChild(aisle);
+          }
+          section.elements.forEach(element => {
+            const cell = document.createElement('div');
+            if (element.type === 'seat') {
+              const svc = element.available_services[0]; // first matching passenger
+              const isAvailable = svc !== undefined;
+              const price = svc ? Math.round(parseFloat(svc.amount)) : 0;
+              cell.className = 'bk-seat' + (isAvailable ? ' available' : ' unavailable');
+              cell.dataset.designator = element.designator;
+              cell.dataset.sliceIdx = sliceIdx;
+              if (svc) {
+                cell.dataset.serviceId = svc.id;
+                cell.dataset.amount = svc.amount;
+                cell.dataset.currency = svc.currency;
+              }
+              cell.innerHTML = `<span class="bk-seat-label">${element.designator || ''}</span>` +
+                (isAvailable && price > 0 ? `<span class="bk-seat-price">${formatCurrency(svc.currency)}${price}</span>` : '');
+              cell.title = element.designator + (price ? ` · ${formatCurrency(svc.currency)}${price}` : '');
+              if (isAvailable) cell.addEventListener('click', () => onSeatClick(cell));
+            } else if (element.type === 'empty') {
+              cell.className = 'bk-seat-empty';
+            } else {
+              cell.className = 'bk-seat-feature bk-seat-' + element.type;
+              cell.title = element.type.replace(/_/g, ' ');
+            }
+            rowEl.appendChild(cell);
+          });
+        });
+        cabinEl.appendChild(rowEl);
+      });
+      mountEl.appendChild(cabinEl);
+    });
+  }
+
+  function onSeatClick(cell) {
+    const sliceIdx = parseInt(cell.dataset.sliceIdx, 10);
+    const designator = cell.dataset.designator;
+    const amount = cell.dataset.amount;
+    const currency = cell.dataset.currency;
+    const serviceId = cell.dataset.serviceId;
+
+    // Toggle: if this seat was selected by this passenger, unselect
+    const key = `${sliceIdx}:${activeSeatPassenger}`;
+    const existing = selectedSeats[key];
+    if (existing && existing.designator === designator) {
+      delete selectedSeats[key];
+    } else {
+      // Remove any other selection by this passenger on this slice
+      Object.keys(selectedSeats).forEach(k => {
+        if (k === key) delete selectedSeats[k];
+      });
+      selectedSeats[key] = { passenger_index: activeSeatPassenger, slice_index: sliceIdx, designator, amount, currency, service_id: serviceId };
+    }
+    redrawSeatHighlights(sliceIdx);
+    redrawPickedSummary(sliceIdx);
+    onFormChange(); // recompute total
+  }
+
+  function redrawSeatHighlights(sliceIdx) {
+    document.querySelectorAll(`[data-slice-render-idx="${sliceIdx}"] .bk-seat.available`).forEach(c => {
+      c.classList.remove('selected', 'selected-other-pax');
+    });
+    Object.values(selectedSeats).forEach(s => {
+      if (s.slice_index !== sliceIdx) return;
+      const el = document.querySelector(`[data-slice-render-idx="${sliceIdx}"] [data-designator="${s.designator}"]`);
+      if (!el) return;
+      if (s.passenger_index === activeSeatPassenger) el.classList.add('selected');
+      else el.classList.add('selected-other-pax');
+    });
+  }
+
+  function redrawPickedSummary(sliceIdx) {
+    const el = document.querySelector(`[data-slice-picked-idx="${sliceIdx}"]`);
+    if (!el) return;
+    const picks = Object.values(selectedSeats).filter(s => s.slice_index === sliceIdx);
+    if (picks.length === 0) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = picks.map(p =>
+      `<div class="bk-seat-picked-row">Passenger ${p.passenger_index + 1}: <strong>${p.designator}</strong> · ${formatCurrency(p.currency)}${Math.round(parseFloat(p.amount))}</div>`
+    ).join('');
+  }
+
+  // ─── BAGS ────────────────────────────────────────────────
+  // selectedBags[paxIdx] = { kind, max_weight_kg, quantity, amount, currency, service_id }
+  const selectedBags = {};
+
+  function setupBags() {
+    const container = document.getElementById('bagsContainer');
+    if (!container) return;
+    let options;
+    try {
+      options = JSON.parse(container.dataset.bagOptions || '[]');
+    } catch (e) { return; }
+    if (!options.length) return;
+
+    const passengerCount = parseInt(container.dataset.passengerCount, 10) || 1;
+    for (let i = 0; i < passengerCount; i++) {
+      const mount = container.querySelector(`[data-bag-options-pax="${i}"]`);
+      if (!mount) continue;
+      mount.innerHTML = '<div class="bk-bag-option-none active" data-pax="' + i + '" data-bag-none="1">None</div>' +
+        options.map((opt, idx) =>
+          `<div class="bk-bag-option" data-pax="${i}" data-bag-idx="${idx}"
+                 data-service-id="${opt.id}"
+                 data-amount="${opt.amount}"
+                 data-currency="${opt.currency}"
+                 data-kind="${opt.kind}"
+                 data-weight="${opt.max_weight_kg || ''}">
+            <div class="bk-bag-opt-icon"><i data-lucide="luggage" style="width:14px;height:14px;"></i></div>
+            <div class="bk-bag-opt-body">
+              <div class="bk-bag-opt-title">${opt.kind === 'carry_on' ? 'Carry-on' : 'Checked bag'}${opt.max_weight_kg ? ` · ${opt.max_weight_kg}kg` : ''}</div>
+              <div class="bk-bag-opt-price">${formatCurrency(opt.currency)}${Math.round(parseFloat(opt.amount))}</div>
+            </div>
+          </div>`
+        ).join('');
+    }
+    if (window.lucide) window.lucide.createIcons();
+
+    // Wire click handlers
+    container.querySelectorAll('.bk-bag-option, .bk-bag-option-none').forEach(el => {
+      el.addEventListener('click', () => onBagClick(el));
+    });
+  }
+
+  function onBagClick(el) {
+    const pax = parseInt(el.dataset.pax, 10);
+    const isNone = el.dataset.bagNone === '1';
+
+    // Deselect all options for this passenger
+    document.querySelectorAll(`[data-pax="${pax}"]`).forEach(o => o.classList.remove('active'));
+    el.classList.add('active');
+
+    if (isNone) {
+      delete selectedBags[pax];
+    } else {
+      selectedBags[pax] = {
+        passenger_index: pax,
+        kind: el.dataset.kind,
+        max_weight_kg: parseFloat(el.dataset.weight) || null,
+        quantity: 1,
+        amount: el.dataset.amount,
+        currency: el.dataset.currency,
+        service_id: el.dataset.serviceId
+      };
+    }
+    onFormChange();
+  }
+
+  // ─── AFFILIATE CLICK TRACKING ─────────────────────────────
+  function setupAffiliateTracking() {
+    document.querySelectorAll('.bk-affiliate-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const partner = card.dataset.affiliate;
+        if (!partner) return;
+        // Fire-and-forget; the link opens in a new tab regardless
+        fetch('/api/affiliate/click', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partner, order_reference: orderReference || null })
+        }).catch(() => {});
+      });
+    });
+  }
+
+  // ─── COLLECT ALL ADDONS ───────────────────────────────────
+  function collectAddons() {
+    const seatNotes = document.querySelector('[name="addons[seat_preference_notes]"]')?.value?.trim() || '';
+    const bagNotes = document.querySelector('[name="addons[bag_preference_notes]"]')?.value?.trim() || '';
+    return {
+      seats: Object.values(selectedSeats),
+      seat_preference_notes: seatNotes,
+      bags: Object.values(selectedBags),
+      bag_preference_notes: bagNotes
+    };
+  }
+
+  function formatCurrency(code) {
+    return code === 'EUR' ? '€' : code === 'USD' ? '$' : code === 'GBP' ? '£' : (code || '') + ' ';
+  }
+
   function onFormChange() {
     if (intentRequested) return;
     if (passengerFieldsValid()) {
@@ -376,7 +631,8 @@
       passengers,
       contact_email: formData.get('contact_email'),
       contact_phone: formData.get('contact_phone'),
-      billing: collectBilling(formData)
+      billing: collectBilling(formData),
+      addons: collectAddons()
     };
 
     showPaymentLoading();
