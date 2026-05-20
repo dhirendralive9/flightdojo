@@ -107,10 +107,13 @@ const orderSchema = new mongoose.Schema({
   reference: { type: String, unique: true, index: true },
   status: {
     type: String,
-    enum: ['pending', 'risk_blocked', 'awaiting_payment', 'paid', 'booked', 'failed', 'cancelled'],
+    enum: ['pending', 'risk_blocked', 'awaiting_payment', 'paid', 'booked', 'ticketed', 'failed', 'cancelled', 'completed'],
     default: 'pending',
     index: true
   },
+
+  // Linked user (set on signup or future order with matching email)
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, default: null },
 
   // Duffel
   duffel_offer_id: { type: String, index: true },

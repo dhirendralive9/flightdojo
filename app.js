@@ -1,6 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
@@ -11,7 +13,9 @@ const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
 const proxycheck = require('./services/proxycheck');
 const mailer = require('./services/mailer');
+const auth = require('./services/auth');
 const Order = require('./models/Order');
+const User = require('./models/User');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,6 +101,33 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleSt
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// ─── Sessions (MongoDB-backed, 30-day rolling) ─────────────
+const sessionSecret = process.env.SESSION_SECRET || 'flightdojo-dev-secret-CHANGE-IN-PRODUCTION';
+if (sessionSecret.includes('CHANGE-IN-PRODUCTION')) {
+  console.warn('⚠  SESSION_SECRET not set — using insecure default. Set a random 32+ char string in .env for production.');
+}
+app.use(session({
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,           // refresh expiry on every request
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000  // 30 days
+  },
+  store: MongoStore.create({
+    mongoUrl: mongoUri,
+    ttl: 30 * 24 * 60 * 60,    // session lifetime in seconds
+    autoRemove: 'native',
+    crypto: { secret: sessionSecret }
+  })
+}));
+
+// Attach req.user + res.locals.user (without enforcing auth)
+app.use(auth.attachUser);
 
 const navLinks = [
   { label: 'Home', href: '/' },
@@ -789,6 +820,232 @@ app.get('/admin/test-email', async (req, res) => {
       ? 'Email sent — check inbox (and spam folder). If nothing arrives in 5 mins, check Brevo dashboard → Statistics → Email Activity.'
       : 'Send failed. Check the server log for the SMTP error.'
   });
+});
+
+// ─── AUTH ROUTES ─────────────────────────────────────────
+
+// Login + signup pages
+app.get('/login', (req, res) => {
+  if (req.user) return res.redirect('/account');
+  res.render('login', {
+    title: 'Sign in — FlightDojo',
+    next_url: req.query.next || '',
+    error: null,
+    sent_magic: false
+  });
+});
+
+app.get('/signup', (req, res) => {
+  if (req.user) return res.redirect('/account');
+  res.render('signup', {
+    title: 'Create account — FlightDojo',
+    error: null,
+    prefill_email: req.query.email || '',
+    next_url: req.query.next || ''
+  });
+});
+
+// POST signup (also called inline from booking success page)
+app.post('/api/account/signup', async (req, res) => {
+  const { email, password, name, phone } = req.body || {};
+  const result = await auth.signupWithPassword({ email, password, name, phone });
+  if (!result.ok) return res.status(400).json({ error: result.error, existing: !!result.existing });
+
+  req.session.userId = result.user._id;
+  req.session.save(async () => {
+    // Send welcome email (fire-and-forget)
+    const dashboardUrl = (process.env.BASE_URL || 'http://localhost:3000') + '/account';
+    mailer.sendWelcome(result.user, dashboardUrl, result.linked_orders).catch(() => {});
+    res.json({
+      ok: true,
+      linked_orders: result.linked_orders,
+      redirect: req.body.next || '/account'
+    });
+  });
+});
+
+// POST login
+app.post('/api/account/login', async (req, res) => {
+  const { email, password } = req.body || {};
+  const result = await auth.loginWithPassword({ email, password });
+  if (!result.ok) return res.status(401).json({ error: result.error });
+
+  req.session.userId = result.user._id;
+  req.session.save(() => {
+    res.json({ ok: true, redirect: req.body.next || '/account' });
+  });
+});
+
+// POST request magic link
+app.post('/api/account/magic-link', async (req, res) => {
+  const { email } = req.body || {};
+  const result = await auth.startMagicLink({ email });
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+  const linkUrl = `${baseUrl}/account/magic/${result.token}`;
+  mailer.sendMagicLink(result.user, linkUrl).catch(() => {});
+
+  res.json({ ok: true });
+});
+
+// GET magic link click
+app.get('/account/magic/:token', async (req, res) => {
+  const result = await auth.consumeMagicLink(req.params.token);
+  if (!result.ok) {
+    return res.render('login', {
+      title: 'Sign in — FlightDojo',
+      next_url: '',
+      error: result.error,
+      sent_magic: false
+    });
+  }
+  req.session.userId = result.user._id;
+  req.session.save(() => res.redirect('/account'));
+});
+
+// POST forgot password
+app.get('/forgot', (req, res) => {
+  res.render('forgot', { title: 'Reset password — FlightDojo', sent: false, error: null });
+});
+app.post('/api/account/forgot', async (req, res) => {
+  const { email } = req.body || {};
+  const result = await auth.startPasswordReset({ email });
+  if (result.user && result.token) {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+    const linkUrl = `${baseUrl}/account/reset/${result.token}`;
+    mailer.sendPasswordReset(result.user, linkUrl).catch(() => {});
+  }
+  // Always return success so we don't reveal whether email exists
+  res.json({ ok: true });
+});
+
+app.get('/account/reset/:token', async (req, res) => {
+  res.render('reset-password', {
+    title: 'Set new password — FlightDojo',
+    token: req.params.token,
+    error: null
+  });
+});
+app.post('/api/account/reset/:token', async (req, res) => {
+  const { password, password_confirm } = req.body || {};
+  if (password !== password_confirm) {
+    return res.status(400).json({ error: 'Passwords do not match.' });
+  }
+  const result = await auth.consumePasswordReset(req.params.token, password);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  // Auto-login after successful reset
+  req.session.userId = result.user._id;
+  req.session.save(() => res.json({ ok: true, redirect: '/account' }));
+});
+
+// POST logout
+app.post('/api/account/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/'));
+});
+
+// ─── ACCOUNT DASHBOARD ───────────────────────────────────
+
+app.get('/account', auth.requireAuth, async (req, res) => {
+  // Re-link orders in case any came in since last session
+  await auth.linkOrdersToUser(req.user);
+
+  const orders = await Order.find({ user_id: req.user._id })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  // Split into upcoming vs past based on first slice's date
+  const now = new Date();
+  const upcoming = [];
+  const past = [];
+  for (const o of orders) {
+    const firstDate = o.slices?.[0]?.departure_date;
+    const trip = firstDate ? new Date(firstDate + 'T00:00:00Z') : null;
+    if (trip && trip >= now && o.status !== 'cancelled') {
+      upcoming.push(o);
+    } else {
+      past.push(o);
+    }
+  }
+
+  res.render('account/dashboard', {
+    title: 'My trips — FlightDojo',
+    upcoming,
+    past,
+    active_section: 'trips'
+  });
+});
+
+app.get('/account/bookings/:reference', auth.requireAuth, async (req, res) => {
+  const order = await Order.findOne({
+    reference: req.params.reference,
+    user_id: req.user._id
+  }).lean();
+  if (!order) return res.status(404).render('404', { title: '404 — FlightDojo' });
+
+  res.render('account/trip-detail', {
+    title: `Trip ${order.reference} — FlightDojo`,
+    order,
+    active_section: 'trips'
+  });
+});
+
+app.get('/account/settings', auth.requireAuth, async (req, res) => {
+  res.render('account/settings', {
+    title: 'Account settings — FlightDojo',
+    active_section: 'settings',
+    saved: req.query.saved === '1',
+    error: null
+  });
+});
+
+app.post('/api/account/settings', auth.requireAuth, async (req, res) => {
+  const { name, phone, default_billing } = req.body || {};
+  try {
+    if (typeof name === 'string') req.user.name = name.trim().slice(0, 100);
+    if (typeof phone === 'string') req.user.phone = phone.trim().slice(0, 30);
+    if (default_billing && typeof default_billing === 'object') {
+      req.user.default_billing = {
+        name: String(default_billing.name || '').trim(),
+        company: String(default_billing.company || '').trim(),
+        country: String(default_billing.country || '').trim().toUpperCase(),
+        country_name: String(default_billing.country_name || '').trim(),
+        line1: String(default_billing.line1 || '').trim(),
+        line2: String(default_billing.line2 || '').trim(),
+        city: String(default_billing.city || '').trim(),
+        state: String(default_billing.state || '').trim(),
+        postal_code: String(default_billing.postal_code || '').trim(),
+        phone: String(default_billing.phone || '').trim()
+      };
+    }
+    await req.user.save();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/account/change-password', auth.requireAuth, async (req, res) => {
+  const { current_password, new_password, new_password_confirm } = req.body || {};
+  if (!new_password || new_password.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  }
+  if (new_password !== new_password_confirm) {
+    return res.status(400).json({ error: 'New passwords do not match.' });
+  }
+  // If they already have a password, require current one. If they don't (magic-link-only user), allow setting one.
+  if (req.user.password_hash) {
+    const valid = await req.user.checkPassword(current_password || '');
+    if (!valid) return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  await req.user.setPassword(new_password);
+  await req.user.save();
+  res.json({ ok: true });
 });
 
 // ─── STATIC PAGES ────────────────────────────────────────

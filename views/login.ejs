@@ -1,0 +1,59 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="auth-section">
+  <div class="auth-card">
+    <div class="auth-eyebrow">Welcome back</div>
+    <h1 class="auth-title">Sign in to FlightDojo</h1>
+    <p class="auth-sub">Access your bookings, manage trips, save passenger details.</p>
+
+    <% if (error) { %>
+      <div class="auth-error"><i data-lucide="alert-circle" style="width:13px;height:13px;"></i> <%= error %></div>
+    <% } %>
+
+    <!-- TABS: Password / Magic link -->
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab active" data-tab="password">Password</button>
+      <button type="button" class="auth-tab" data-tab="magic">Email me a link</button>
+    </div>
+
+    <!-- Password form -->
+    <form id="loginForm" class="auth-form" data-tab-form="password">
+      <div class="auth-field">
+        <label>Email</label>
+        <input type="email" name="email" required autocomplete="email" autofocus placeholder="you@example.com"/>
+      </div>
+      <div class="auth-field">
+        <label>Password <a href="/forgot" class="auth-side-link">Forgot?</a></label>
+        <input type="password" name="password" required autocomplete="current-password" minlength="8"/>
+      </div>
+      <input type="hidden" name="next" value="<%= next_url %>"/>
+      <button type="submit" class="btn-coral auth-submit">
+        <span class="auth-submit-label">Sign in</span>
+        <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+      </button>
+      <div class="auth-msg" data-msg-for="password"></div>
+    </form>
+
+    <!-- Magic link form -->
+    <form id="magicForm" class="auth-form" data-tab-form="magic" style="display:none;">
+      <p class="auth-explain">Enter your email and we'll send you a one-tap sign-in link. No password needed.</p>
+      <div class="auth-field">
+        <label>Email</label>
+        <input type="email" name="email" required autocomplete="email" placeholder="you@example.com"/>
+      </div>
+      <button type="submit" class="btn-coral auth-submit">
+        <i data-lucide="mail" style="width:14px;height:14px;"></i>
+        <span class="auth-submit-label">Send sign-in link</span>
+      </button>
+      <div class="auth-msg" data-msg-for="magic"></div>
+    </form>
+
+    <div class="auth-foot">
+      New to FlightDojo? <a href="/signup<%= next_url ? '?next=' + encodeURIComponent(next_url) : '' %>">Create an account</a>
+    </div>
+  </div>
+</div>
+
+<script src="/js/account.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('partials/footer') %>

@@ -1,0 +1,43 @@
+<% const currency = o.total_currency === 'EUR' ? '€' : o.total_currency === 'USD' ? '$' : o.total_currency === 'GBP' ? '£' : (o.total_currency || '') + ' '; %>
+<% const statusLabel = {
+     awaiting_payment: 'Awaiting payment',
+     paid: 'Payment received',
+     booked: 'Booking received',
+     ticketed: 'Ticketed',
+     completed: 'Completed',
+     failed: 'Failed',
+     cancelled: 'Cancelled',
+     risk_blocked: 'Blocked'
+   }[o.status] || o.status; %>
+
+<a href="/account/bookings/<%= o.reference %>" class="account-trip-card account-trip-status-<%= o.status %>">
+  <div class="account-trip-head">
+    <div class="account-trip-ref">
+      <% if (o.booking_reference && o.booking_reference !== o.reference) { %>
+        <span class="account-trip-pnr"><%= o.booking_reference %></span>
+        <span class="account-trip-internal">· <%= o.reference %></span>
+      <% } else { %>
+        <%= o.reference %>
+      <% } %>
+    </div>
+    <div class="account-trip-status"><%= statusLabel %></div>
+  </div>
+
+  <div class="account-trip-route">
+    <% (o.slices || []).forEach((s, idx) => { %>
+      <% if (idx > 0) { %><div class="account-trip-slice-sep"></div><% } %>
+      <div class="account-trip-slice">
+        <span class="account-trip-iata"><%= s.origin %></span>
+        <i data-lucide="arrow-right" style="width:14px;height:14px;color:var(--coral);vertical-align:-2px;"></i>
+        <span class="account-trip-iata"><%= s.destination %></span>
+        <span class="account-trip-date">· <%= s.departure_date %></span>
+      </div>
+    <% }) %>
+  </div>
+
+  <div class="account-trip-meta">
+    <span><i data-lucide="users" style="width:11px;height:11px;"></i> <%= o.passenger_count %> pax</span>
+    <span><i data-lucide="plane" style="width:11px;height:11px;"></i> <%= o.carrier_iata || '—' %></span>
+    <span class="account-trip-total"><%= currency %><%= Math.round(parseFloat(o.total_amount || 0)) %></span>
+  </div>
+</a>

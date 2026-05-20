@@ -32,6 +32,14 @@
       <i data-lucide="sun" class="icon-sun" style="width:16px;height:16px;"></i>
       <i data-lucide="moon" class="icon-moon" style="width:16px;height:16px;"></i>
     </button>
+    <% if (typeof user !== 'undefined' && user) { %>
+      <a href="/account" class="btn-ghost-nav">
+        <i data-lucide="user" style="width:14px;height:14px;"></i>
+        My trips
+      </a>
+    <% } else { %>
+      <a href="/login" class="btn-ghost-nav">Sign in</a>
+    <% } %>
     <a href="/" class="btn-coral">Search Flights</a>
     <button class="hamburger" id="hamburger" aria-label="Menu">
       <i data-lucide="menu" style="width:22px;height:22px;"></i>

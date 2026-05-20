@@ -521,4 +521,156 @@ async function sendBookingPending(order, failureReason) {
   }
 }
 
-module.exports = { sendBookingConfirmation, sendBookingPending };
+module.exports = {
+  sendBookingConfirmation,
+  sendBookingPending,
+  sendWelcome,
+  sendMagicLink,
+  sendPasswordReset
+};
+
+// ───────────────────────────────────────────────────────────
+// ACCOUNT-RELATED EMAILS
+// ───────────────────────────────────────────────────────────
+
+function buildAccountEmail({ headline, subheadline, intro, ctaUrl, ctaLabel, securityNote }) {
+  const CORAL = '#FF5038';
+  const TEXT = '#1a1a1a';
+  const MUTED = '#6b6b6b';
+  const SOFT = '#fdf3f1';
+
+  const content = `
+    <tr><td style="padding:32px;">
+      ${headline ? `<div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:${CORAL};font-weight:700;margin-bottom:8px;">${escapeHtml(headline)}</div>` : ''}
+      <h1 style="margin:0 0 18px 0;font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:800;color:${TEXT};line-height:1.1;">
+        ${escapeHtml(subheadline)}
+      </h1>
+      <p style="margin:0 0 24px 0;font-size:14px;color:${MUTED};line-height:1.65;">
+        ${intro}
+      </p>
+      ${ctaUrl ? `
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${escapeHtml(ctaUrl)}"
+             style="display:inline-block;background:${CORAL};color:#fff;text-decoration:none;font-family:Georgia,serif;font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;padding:14px 32px;border-radius:4px;">
+            ${escapeHtml(ctaLabel || 'Continue')} →
+          </a>
+        </div>
+        <div style="font-size:11px;color:${MUTED};margin-top:8px;word-break:break-all;">
+          Or copy and paste this link into your browser:<br/>
+          <a href="${escapeHtml(ctaUrl)}" style="color:${CORAL};">${escapeHtml(ctaUrl)}</a>
+        </div>
+      ` : ''}
+      ${securityNote ? `
+        <div style="margin-top:24px;padding:14px 16px;background:${SOFT};border-left:3px solid ${CORAL};font-size:12px;color:${TEXT};line-height:1.6;">
+          ${securityNote}
+        </div>
+      ` : ''}
+    </td></tr>
+  `;
+
+  return brandedEmail({
+    subject: subheadline,
+    preheader: intro.replace(/<[^>]+>/g, '').slice(0, 100),
+    contentBlocks: content,
+    footerText: `If you didn't request this, you can safely ignore this email.<br/>Sent ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`
+  });
+}
+
+async function sendWelcome(user, dashboardUrl, linkedOrdersCount) {
+  if (!transporter) {
+    console.log('───── WELCOME EMAIL (SMTP not configured) → ' + user.email);
+    return false;
+  }
+  const html = buildAccountEmail({
+    headline: 'Account Created',
+    subheadline: 'Welcome to FlightDojo.',
+    intro: `Hi${user.name ? ' ' + escapeHtml(user.name) : ''}, your FlightDojo account is ready. ${linkedOrdersCount > 0 ? `We've linked <strong>${linkedOrdersCount} existing booking${linkedOrdersCount > 1 ? 's' : ''}</strong> to your account so you can view them all in one place.` : 'All your future bookings will be saved here automatically.'}`,
+    ctaUrl: dashboardUrl,
+    ctaLabel: 'Open my dashboard'
+  });
+  try {
+    console.log(`📬 → Welcome email → ${user.email}`);
+    const info = await transporter.sendMail({
+      from,
+      to: user.email,
+      subject: 'Welcome to FlightDojo',
+      html,
+      text: `Welcome to FlightDojo${user.name ? ', ' + user.name : ''}.\n\nYour account is ready. Open your dashboard: ${dashboardUrl}\n\n— FlightDojo`,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: {
+        'X-Mailer': 'FlightDojo',
+        'List-Unsubscribe': '<mailto:unsubscribe@flightdojo.it.com>',
+        'Precedence': 'transactional'
+      }
+    });
+    console.log('📬 ✓ Welcome sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Welcome send failed:', err.message);
+    return false;
+  }
+}
+
+async function sendMagicLink(user, linkUrl) {
+  if (!transporter) {
+    console.log('───── MAGIC LINK (SMTP not configured) → ' + user.email);
+    console.log('Link:', linkUrl);
+    return false;
+  }
+  const html = buildAccountEmail({
+    headline: 'Sign-in link',
+    subheadline: 'Tap to sign in to FlightDojo',
+    intro: `Click the button below to sign in to your FlightDojo account. This link expires in <strong>15 minutes</strong> and can only be used once.`,
+    ctaUrl: linkUrl,
+    ctaLabel: 'Sign in',
+    securityNote: '<strong>Didn\'t request this?</strong> Someone may have entered your email address by mistake. You can safely ignore this email — no changes will be made to your account.'
+  });
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to: user.email,
+      subject: 'Your FlightDojo sign-in link',
+      html,
+      text: `Tap to sign in to your FlightDojo account:\n\n${linkUrl}\n\nThis link expires in 15 minutes and can only be used once.\n\nIf you didn't request this, ignore this email.\n\n— FlightDojo`,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: { 'X-Mailer': 'FlightDojo', 'Precedence': 'transactional' }
+    });
+    console.log('📬 ✓ Magic link sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Magic link send failed:', err.message);
+    return false;
+  }
+}
+
+async function sendPasswordReset(user, linkUrl) {
+  if (!transporter) {
+    console.log('───── PASSWORD RESET (SMTP not configured) → ' + user.email);
+    console.log('Link:', linkUrl);
+    return false;
+  }
+  const html = buildAccountEmail({
+    headline: 'Reset Password',
+    subheadline: 'Reset your FlightDojo password',
+    intro: `We received a request to reset the password for your FlightDojo account. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.`,
+    ctaUrl: linkUrl,
+    ctaLabel: 'Reset password',
+    securityNote: '<strong>Didn\'t request this?</strong> Your password is unchanged. You can safely ignore this email — but if you keep seeing these, please contact support.'
+  });
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to: user.email,
+      subject: 'Reset your FlightDojo password',
+      html,
+      text: `Reset your FlightDojo password:\n\n${linkUrl}\n\nExpires in 1 hour.\n\nIf you didn't request this, ignore this email.\n\n— FlightDojo`,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: { 'X-Mailer': 'FlightDojo', 'Precedence': 'transactional' }
+    });
+    console.log('📬 ✓ Password reset sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('📬 ✗ Password reset send failed:', err.message);
+    return false;
+  }
+}

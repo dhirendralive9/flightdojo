@@ -1,0 +1,47 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header">
+  <h1 class="account-h1">My trips</h1>
+  <p class="account-sub">All your bookings in one place. Click a trip for details, status, and travel docs.</p>
+</div>
+
+<% if (upcoming.length === 0 && past.length === 0) { %>
+  <div class="account-empty">
+    <div class="account-empty-icon">
+      <i data-lucide="plane" style="width:40px;height:40px;"></i>
+    </div>
+    <h2>No bookings yet</h2>
+    <p>When you book a flight with FlightDojo, it'll appear here.</p>
+    <a href="/" class="btn-coral" style="margin-top:16px;">
+      <i data-lucide="search" style="width:14px;height:14px;"></i>
+      Search flights
+    </a>
+  </div>
+<% } %>
+
+<% if (upcoming.length > 0) { %>
+  <div class="account-trips-block">
+    <h2 class="account-trips-title">Upcoming</h2>
+    <div class="account-trips-grid">
+      <% upcoming.forEach(o => { %>
+        <%- include('_trip-card', { o: o }) %>
+      <% }) %>
+    </div>
+  </div>
+<% } %>
+
+<% if (past.length > 0) { %>
+  <div class="account-trips-block">
+    <h2 class="account-trips-title">Past trips</h2>
+    <div class="account-trips-grid">
+      <% past.forEach(o => { %>
+        <%- include('_trip-card', { o: o }) %>
+      <% }) %>
+    </div>
+  </div>
+<% } %>
+
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

@@ -1,0 +1,43 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="auth-section">
+  <div class="auth-card">
+    <div class="auth-eyebrow">Create your account</div>
+    <h1 class="auth-title">Join FlightDojo</h1>
+    <p class="auth-sub">Save your bookings, speed up future checkouts, and access trip details in one place.</p>
+
+    <% if (error) { %>
+      <div class="auth-error"><i data-lucide="alert-circle" style="width:13px;height:13px;"></i> <%= error %></div>
+    <% } %>
+
+    <form id="signupForm" class="auth-form">
+      <div class="auth-field">
+        <label>Email</label>
+        <input type="email" name="email" required autocomplete="email" value="<%= prefill_email %>" placeholder="you@example.com" autofocus/>
+      </div>
+      <div class="auth-field">
+        <label>Full name</label>
+        <input type="text" name="name" autocomplete="name" placeholder="Your name"/>
+      </div>
+      <div class="auth-field">
+        <label>Password</label>
+        <input type="password" name="password" required autocomplete="new-password" minlength="8" placeholder="At least 8 characters"/>
+        <div class="auth-hint">8+ characters. Mix in numbers and symbols for stronger security.</div>
+      </div>
+      <input type="hidden" name="next" value="<%= next_url %>"/>
+      <button type="submit" class="btn-coral auth-submit">
+        <span class="auth-submit-label">Create account</span>
+        <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+      </button>
+      <div class="auth-msg"></div>
+    </form>
+
+    <div class="auth-foot">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<script src="/js/account.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('partials/footer') %>

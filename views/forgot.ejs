@@ -1,0 +1,29 @@
+<%- include('partials/head') %>
+<%- include('partials/navbar') %>
+
+<div class="auth-section">
+  <div class="auth-card">
+    <div class="auth-eyebrow">Forgot password</div>
+    <h1 class="auth-title">Reset your password</h1>
+    <p class="auth-sub">Enter your email and we'll send you a link to set a new password.</p>
+
+    <form id="forgotForm" class="auth-form">
+      <div class="auth-field">
+        <label>Email</label>
+        <input type="email" name="email" required autocomplete="email" autofocus placeholder="you@example.com"/>
+      </div>
+      <button type="submit" class="btn-coral auth-submit">
+        <i data-lucide="mail" style="width:14px;height:14px;"></i>
+        <span class="auth-submit-label">Send reset link</span>
+      </button>
+      <div class="auth-msg"></div>
+    </form>
+
+    <div class="auth-foot">
+      Remembered your password? <a href="/login">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<script src="/js/account.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('partials/footer') %>

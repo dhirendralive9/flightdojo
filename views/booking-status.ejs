@@ -61,6 +61,57 @@
             Get support
           </a>
         </div>
+
+        <!-- Inline account-creation card (only for logged-out users) -->
+        <% if (typeof user === 'undefined' || !user) { %>
+          <div id="inlineSignupCard" class="bks-signup-card">
+            <div class="bks-signup-head">
+              <i data-lucide="user-plus" style="width:18px;height:18px;color:var(--coral);"></i>
+              <h3>Save this booking — create an account in 30 seconds</h3>
+            </div>
+            <p class="bks-signup-sub">
+              Track this trip and all future bookings in one dashboard. We'll auto-fill your details next time.
+            </p>
+            <form id="inlineSignupForm" class="bks-signup-form">
+              <input type="hidden" name="email" value="<%= order ? order.contact_email : '' %>"/>
+              <input type="hidden" name="name" value="<%= order && order.passengers && order.passengers[0] ? ((order.passengers[0].given_name || '') + ' ' + (order.passengers[0].family_name || '')).trim() : '' %>"/>
+              <div class="bks-signup-emaildisplay">
+                <i data-lucide="mail" style="width:13px;height:13px;color:var(--text-muted);"></i>
+                <%= order ? order.contact_email : '' %>
+              </div>
+              <div class="bks-signup-fields">
+                <input type="password" name="password" required minlength="8" placeholder="Choose a password (8+)" class="bk-input" autocomplete="new-password"/>
+                <input type="password" name="password_confirm" required minlength="8" placeholder="Confirm password" class="bk-input" autocomplete="new-password"/>
+              </div>
+              <button type="submit" class="btn-coral bks-signup-btn">
+                <i data-lucide="user-plus" style="width:14px;height:14px;"></i>
+                <span class="auth-submit-label">Create account</span>
+              </button>
+              <div class="auth-msg"></div>
+            </form>
+            <div class="bks-signup-foot">
+              Already have an account? <a href="/login">Sign in</a>
+            </div>
+          </div>
+
+          <div id="inlineSignupSuccess" class="bks-signup-success" style="display:none;">
+            <i data-lucide="check-circle" style="width:24px;height:24px;color:var(--coral);"></i>
+            <div>
+              <strong>Account created!</strong>
+              <span>We've linked <span id="inlineSignupLinkedCount">1</span> booking to your account.</span>
+              <a href="/account" class="bks-signup-success-cta">View my dashboard →</a>
+            </div>
+          </div>
+        <% } else { %>
+          <!-- Logged-in users get a direct link to their dashboard -->
+          <div class="bks-signup-card" style="background:var(--bg-2);">
+            <p class="bks-signup-sub" style="margin:0 0 12px;">This booking has been added to your account.</p>
+            <a href="/account" class="btn-coral bks-signup-btn">
+              <i data-lucide="layout-dashboard" style="width:14px;height:14px;"></i>
+              View my trips
+            </a>
+          </div>
+        <% } %>
       <% } %>
     </div>
 
@@ -91,5 +142,6 @@
   window.FD_INITIAL_STATUS = '<%= order ? order.status : "pending" %>';
 </script>
 <script src="/js/booking-status.js?v=<%= typeof assetVersion !== "undefined" ? assetVersion : "1" %>"></script>
+<script src="/js/account.js?v=<%= typeof assetVersion !== "undefined" ? assetVersion : "1" %>"></script>
 
 <%- include('partials/footer') %>

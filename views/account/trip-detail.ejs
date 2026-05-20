@@ -1,0 +1,172 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<% const currency = order.total_currency === 'EUR' ? '€' : order.total_currency === 'USD' ? '$' : order.total_currency === 'GBP' ? '£' : (order.total_currency || '') + ' '; %>
+
+<a href="/account" class="back-link">
+  <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
+  Back to trips
+</a>
+
+<div class="trip-detail-header">
+  <div>
+    <div class="trip-detail-eyebrow">
+      <%= { awaiting_payment: 'Awaiting payment', paid: 'Payment received', booked: 'Booking received', ticketed: 'Ticketed', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }[order.status] || order.status %>
+    </div>
+    <h1 class="trip-detail-h1">
+      <%= order.slices[0]?.origin %> → <%= order.slices[order.slices.length-1]?.destination %>
+    </h1>
+    <p class="trip-detail-sub">
+      <strong><%= order.booking_reference || order.reference %></strong>
+      <% if (order.booking_reference && order.booking_reference !== order.reference) { %>
+        <span style="color:var(--text-muted);"> · Order <%= order.reference %></span>
+      <% } %>
+    </p>
+  </div>
+  <div class="trip-detail-actions">
+    <a href="/contact?ref=<%= order.reference %>" class="btn-ghost-hero">
+      <i data-lucide="headphones" style="width:13px;height:13px;"></i>
+      Get help with this trip
+    </a>
+  </div>
+</div>
+
+<div class="trip-detail-grid">
+  <div class="trip-detail-main">
+
+    <!-- Itinerary -->
+    <div class="trip-detail-card">
+      <div class="trip-card-title">Itinerary</div>
+      <% (order.slices || []).forEach((slice, idx) => { %>
+        <div class="trip-slice<%= idx > 0 ? ' trip-slice-return' : '' %>">
+          <div class="trip-slice-head">
+            <span class="trip-slice-tag"><%= idx === 0 ? 'Outbound' : 'Return' %></span>
+            <span class="trip-slice-date"><%= slice.departure_date %></span>
+          </div>
+          <div class="trip-slice-route">
+            <div class="trip-slice-airport">
+              <div class="trip-slice-iata"><%= slice.origin %></div>
+              <div class="trip-slice-name"><%= slice.origin_name || '' %></div>
+            </div>
+            <div class="trip-slice-mid">
+              <div class="trip-slice-duration"><%= slice.duration || '' %></div>
+              <div class="trip-slice-line"></div>
+              <div class="trip-slice-stops"><%= slice.stops === 0 ? 'Direct' : (slice.stops + ' stop' + (slice.stops > 1 ? 's' : '')) %></div>
+            </div>
+            <div class="trip-slice-airport trip-slice-airport-right">
+              <div class="trip-slice-iata"><%= slice.destination %></div>
+              <div class="trip-slice-name"><%= slice.destination_name || '' %></div>
+            </div>
+          </div>
+          <% (slice.segments || []).forEach(seg => { %>
+            <div class="trip-segment">
+              <div><strong><%= seg.carrier %></strong> <span style="color:var(--text-muted);"><%= seg.carrier_iata %> <%= seg.flight_number %></span></div>
+              <div style="color:var(--text-muted);font-size:11px;"><%= seg.aircraft || '' %></div>
+            </div>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Passengers -->
+    <div class="trip-detail-card">
+      <div class="trip-card-title">Passengers</div>
+      <% (order.passengers || []).forEach((p, idx) => { %>
+        <div class="trip-passenger">
+          <div class="trip-passenger-num"><%= idx + 1 %></div>
+          <div>
+            <div class="trip-passenger-name">
+              <%= [p.title, p.given_name, p.family_name].filter(Boolean).join(' ') %>
+            </div>
+            <div class="trip-passenger-meta">
+              <%= p.type %><% if (p.born_on) { %> · Born <%= p.born_on %><% } %>
+            </div>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Add-ons -->
+    <% if (order.addons && (
+      (order.addons.seats && order.addons.seats.length) ||
+      (order.addons.bags && order.addons.bags.length) ||
+      order.addons.seat_preference_notes ||
+      order.addons.bag_preference_notes
+    )) { %>
+      <div class="trip-detail-card">
+        <div class="trip-card-title">Add-ons</div>
+        <% if (order.addons.seats && order.addons.seats.length > 0) { %>
+          <div class="trip-addon-group">
+            <div class="trip-addon-label">Seats</div>
+            <% order.addons.seats.forEach(s => { %>
+              <div>Passenger <%= s.passenger_index + 1 %> · Slice <%= s.slice_index + 1 %>: <strong><%= s.designator %></strong> · <%= currency %><%= Math.round(parseFloat(s.amount || 0)) %></div>
+            <% }) %>
+          </div>
+        <% } %>
+        <% if (order.addons.bags && order.addons.bags.length > 0) { %>
+          <div class="trip-addon-group">
+            <div class="trip-addon-label">Bags</div>
+            <% order.addons.bags.forEach(b => { %>
+              <div>Passenger <%= b.passenger_index + 1 %>: <%= b.kind === 'carry_on' ? 'Carry-on' : 'Checked' %><%= b.max_weight_kg ? ' (' + b.max_weight_kg + 'kg)' : '' %> · <%= currency %><%= Math.round(parseFloat(b.amount || 0)) %></div>
+            <% }) %>
+          </div>
+        <% } %>
+        <% if (order.addons.seat_preference_notes) { %>
+          <div class="trip-addon-group">
+            <div class="trip-addon-label">Seat preferences</div>
+            <div><%= order.addons.seat_preference_notes %></div>
+          </div>
+        <% } %>
+        <% if (order.addons.bag_preference_notes) { %>
+          <div class="trip-addon-group">
+            <div class="trip-addon-label">Bag preferences</div>
+            <div><%= order.addons.bag_preference_notes %></div>
+          </div>
+        <% } %>
+      </div>
+    <% } %>
+  </div>
+
+  <aside class="trip-detail-side">
+    <!-- Payment -->
+    <div class="trip-detail-card">
+      <div class="trip-card-title">Payment</div>
+      <div class="trip-pay-row"><span>Base fare</span><span><%= currency %><%= Math.round(parseFloat(order.base_amount || 0)) %></span></div>
+      <div class="trip-pay-row"><span>Taxes &amp; fees</span><span><%= currency %><%= Math.round(parseFloat(order.tax_amount || 0)) %></span></div>
+      <% if (order.addons && order.addons.total_addons_amount && parseFloat(order.addons.total_addons_amount) > 0) { %>
+        <div class="trip-pay-row"><span>Add-ons</span><span><%= currency %><%= Math.round(parseFloat(order.addons.total_addons_amount)) %></span></div>
+      <% } %>
+      <div class="trip-pay-divider"></div>
+      <div class="trip-pay-total">
+        <span>Total paid</span>
+        <span class="trip-pay-total-amount"><%= currency %><%= Math.round(parseFloat(order.total_amount || 0)) %></span>
+      </div>
+    </div>
+
+    <!-- Contact -->
+    <div class="trip-detail-card">
+      <div class="trip-card-title">Contact</div>
+      <div class="trip-contact-row"><i data-lucide="mail" style="width:13px;height:13px;color:var(--coral);"></i> <%= order.contact_email %></div>
+      <div class="trip-contact-row"><i data-lucide="phone" style="width:13px;height:13px;color:var(--coral);"></i> <%= order.contact_phone %></div>
+    </div>
+
+    <!-- Billing -->
+    <% if (order.billing) { %>
+      <div class="trip-detail-card">
+        <div class="trip-card-title">Billing</div>
+        <div class="trip-billing">
+          <div><strong><%= order.billing.name %></strong></div>
+          <% if (order.billing.company) { %><div><%= order.billing.company %></div><% } %>
+          <div><%= order.billing.line1 %></div>
+          <% if (order.billing.line2) { %><div><%= order.billing.line2 %></div><% } %>
+          <div><%= order.billing.city %>, <%= order.billing.state %> <%= order.billing.postal_code %></div>
+          <div><%= order.billing.country_name || order.billing.country %></div>
+        </div>
+      </div>
+    <% } %>
+  </aside>
+</div>
+
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

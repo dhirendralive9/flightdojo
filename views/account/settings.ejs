@@ -1,0 +1,135 @@
+<%- include('../partials/head') %>
+<%- include('../partials/navbar') %>
+<%- include('_layout-start') %>
+
+<div class="account-header">
+  <h1 class="account-h1">Settings</h1>
+  <p class="account-sub">Manage your profile, default billing, and password.</p>
+</div>
+
+<% if (saved) { %>
+  <div class="account-saved-banner">
+    <i data-lucide="check-circle" style="width:14px;height:14px;color:var(--coral);"></i>
+    Saved.
+  </div>
+<% } %>
+
+<!-- Profile -->
+<div class="trip-detail-card">
+  <div class="trip-card-title">Profile</div>
+  <form id="profileForm">
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">Full name</label>
+        <input type="text" name="name" class="bk-input" value="<%= user.name %>" autocomplete="name"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">Email</label>
+        <input type="email" class="bk-input" value="<%= user.email %>" disabled/>
+        <div class="bk-field-hint">Email is your login — contact support to change it.</div>
+      </div>
+    </div>
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">Phone</label>
+        <input type="tel" name="phone" class="bk-input" value="<%= user.phone %>" autocomplete="tel" placeholder="+1 555 123 4567"/>
+      </div>
+    </div>
+    <button type="submit" class="btn-coral" style="margin-top:14px;">
+      <i data-lucide="save" style="width:14px;height:14px;"></i>
+      Save profile
+    </button>
+    <div class="auth-msg" data-msg-for="profile"></div>
+  </form>
+</div>
+
+<!-- Default billing -->
+<div class="trip-detail-card">
+  <div class="trip-card-title">Default billing address</div>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">Autofills on your next booking.</p>
+  <form id="billingForm">
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">Cardholder name</label>
+        <input type="text" name="name" class="bk-input" value="<%= user.default_billing && user.default_billing.name || '' %>"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">Company <span class="bk-label-opt">(optional)</span></label>
+        <input type="text" name="company" class="bk-input" value="<%= user.default_billing && user.default_billing.company || '' %>"/>
+      </div>
+    </div>
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">Country (ISO 2-letter)</label>
+        <input type="text" name="country" maxlength="2" class="bk-input" value="<%= user.default_billing && user.default_billing.country || '' %>" placeholder="US"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">Country name</label>
+        <input type="text" name="country_name" class="bk-input" value="<%= user.default_billing && user.default_billing.country_name || '' %>" placeholder="United States"/>
+      </div>
+    </div>
+    <div class="bk-field">
+      <label class="bk-label">Address line 1</label>
+      <input type="text" name="line1" class="bk-input" value="<%= user.default_billing && user.default_billing.line1 || '' %>"/>
+    </div>
+    <div class="bk-field">
+      <label class="bk-label">Address line 2 <span class="bk-label-opt">(optional)</span></label>
+      <input type="text" name="line2" class="bk-input" value="<%= user.default_billing && user.default_billing.line2 || '' %>"/>
+    </div>
+    <div class="bk-row bk-row-3">
+      <div class="bk-field">
+        <label class="bk-label">City</label>
+        <input type="text" name="city" class="bk-input" value="<%= user.default_billing && user.default_billing.city || '' %>"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">State / Region</label>
+        <input type="text" name="state" class="bk-input" value="<%= user.default_billing && user.default_billing.state || '' %>"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">ZIP / Postal</label>
+        <input type="text" name="postal_code" class="bk-input" value="<%= user.default_billing && user.default_billing.postal_code || '' %>"/>
+      </div>
+    </div>
+    <button type="submit" class="btn-coral" style="margin-top:14px;">
+      <i data-lucide="save" style="width:14px;height:14px;"></i>
+      Save billing
+    </button>
+    <div class="auth-msg" data-msg-for="billing"></div>
+  </form>
+</div>
+
+<!-- Change password -->
+<div class="trip-detail-card">
+  <div class="trip-card-title">Password</div>
+  <form id="passwordForm">
+    <% if (user.email_verified_at || true) { %>
+      <!-- show current-password only if they have one -->
+    <% } %>
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">Current password</label>
+        <input type="password" name="current_password" class="bk-input" autocomplete="current-password"/>
+        <div class="bk-field-hint">Leave blank if you signed up via magic link.</div>
+      </div>
+    </div>
+    <div class="bk-row bk-row-2">
+      <div class="bk-field">
+        <label class="bk-label">New password</label>
+        <input type="password" name="new_password" class="bk-input" autocomplete="new-password" minlength="8"/>
+      </div>
+      <div class="bk-field">
+        <label class="bk-label">Confirm new password</label>
+        <input type="password" name="new_password_confirm" class="bk-input" autocomplete="new-password" minlength="8"/>
+      </div>
+    </div>
+    <button type="submit" class="btn-coral" style="margin-top:14px;">
+      <i data-lucide="key" style="width:14px;height:14px;"></i>
+      Change password
+    </button>
+    <div class="auth-msg" data-msg-for="password"></div>
+  </form>
+</div>
+
+<script src="/js/account.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
+<%- include('_layout-end') %>
+<%- include('../partials/footer') %>

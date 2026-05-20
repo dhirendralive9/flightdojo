@@ -1,0 +1,29 @@
+<div class="account-section">
+  <aside class="account-sidebar">
+    <div class="account-user-card">
+      <div class="account-avatar"><%= ((user.name || user.email)[0] || '?').toUpperCase() %></div>
+      <div class="account-user-meta">
+        <div class="account-user-name"><%= user.name || user.email %></div>
+        <% if (user.name) { %><div class="account-user-email"><%= user.email %></div><% } %>
+      </div>
+    </div>
+    <nav class="account-nav">
+      <a href="/account" class="<%= active_section === 'trips' ? 'active' : '' %>">
+        <i data-lucide="ticket" style="width:14px;height:14px;"></i>
+        My trips
+      </a>
+      <a href="/account/settings" class="<%= active_section === 'settings' ? 'active' : '' %>">
+        <i data-lucide="settings" style="width:14px;height:14px;"></i>
+        Settings
+      </a>
+      <a href="/contact" class="<%= active_section === 'support' ? 'active' : '' %>">
+        <i data-lucide="headphones" style="width:14px;height:14px;"></i>
+        Support
+      </a>
+      <a href="/logout" class="account-nav-logout">
+        <i data-lucide="log-out" style="width:14px;height:14px;"></i>
+        Sign out
+      </a>
+    </nav>
+  </aside>
+  <main class="account-main">
