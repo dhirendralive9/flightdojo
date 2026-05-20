@@ -27,10 +27,45 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.set('trust proxy', true);
 
+// ─── Stack fingerprint suppression ─────────────────────────
+// Hide that we're running Express/Node from BuiltWith, Wappalyzer, and similar.
+// Removing X-Powered-By is the single biggest signal eliminated.
+app.disable('x-powered-by');
+
+// Strip / mask other headers that leak stack info, and add baseline security
+// headers while we're at it.
+app.use((req, res, next) => {
+  // ETag header leaks the underlying engine (weak/strong format differs)
+  res.removeHeader('X-Powered-By');
+  res.removeHeader('Via');
+
+  // Generic server identity — replace whatever Node/Express would have set
+  res.setHeader('Server', 'FlightDojo');
+
+  // Standard security headers (also good for SOC2 / general hardening)
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '0');  // modern browsers ignore but explicit is safer
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(self "https://js.stripe.com")');
+
+  // HSTS only when behind HTTPS — in production, Cloudflare terminates TLS
+  // upstream so req.secure is true on real requests. Don't send in local HTTP dev.
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+// Disable ETag generation on app responses — ETag format leaks engine info and
+// we don't want browsers / Cloudflare doing 304 revalidation on cache-busted HTML anyway.
+app.set('etag', false);
+
 // Static assets: cache long (1 year) — we cache-bust via ?v=<timestamp>
+// ETag disabled to avoid leaking engine fingerprint
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1y',
-  etag: true,
+  etag: false,
   lastModified: true
 }));
 
