@@ -54,7 +54,9 @@ function brandedEmail({ subject, preheader, contentBlocks, footerText }) {
 <title>${escapeHtml(subject)}</title>
 </head>
 <body style="margin:0;padding:0;background:${BG};font-family:'Helvetica Neue',Arial,sans-serif;color:${TEXT};">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader || '')}</div>
+<!-- Preheader: rendered in inbox preview, hidden in body. No transparent/invisible
+     text tricks that trigger SpamAssassin FONT_INVIS_MSGID. -->
+<div style="display:none!important;visibility:hidden;mso-hide:all;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(preheader || '')}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BG};padding:32px 16px;">
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:${SURFACE};border:1px solid ${BORDER};border-radius:6px;overflow:hidden;">
@@ -101,6 +103,75 @@ function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Plain-text version of the confirmation. Substantively matches the HTML so
+// SpamAssassin doesn't flag MPART_ALT_DIFF. Customer sees this if their email
+// client only renders plain text (rare but happens).
+function buildPlainTextConfirmation(order) {
+  const currency = order.total_currency === 'EUR' ? 'EUR ' :
+    order.total_currency === 'USD' ? 'USD ' :
+    order.total_currency === 'GBP' ? 'GBP ' : (order.total_currency || '') + ' ';
+  const total = Math.round(parseFloat(order.total_amount || 0));
+  const base = Math.round(parseFloat(order.base_amount || 0));
+  const tax = Math.round(parseFloat(order.tax_amount || 0));
+  const baseUrl = process.env.BASE_URL || 'https://flightdojo.it.com';
+  const firstName = order.passengers?.[0]?.given_name || '';
+
+  const lines = [];
+  lines.push('BOOKING CONFIRMED');
+  lines.push('=================');
+  lines.push('');
+  lines.push('Your booking is confirmed.');
+  lines.push('');
+  lines.push(`Thank you${firstName ? ', ' + firstName : ''}. We've received your booking and payment for the trip below.`);
+  lines.push('');
+  lines.push('Our team is now issuing your ticket with the airline. You will receive a second email within 2 business hours containing your airline booking reference (PNR), which you will use at check-in. If you do not see it, please check your spam folder or reply to this email.');
+  lines.push('');
+  lines.push('FLIGHTDOJO ORDER ID');
+  lines.push('-------------------');
+  lines.push(order.reference);
+  lines.push('Quote this number for any support enquiries.');
+  lines.push('');
+  lines.push('ITINERARY');
+  lines.push('---------');
+  (order.slices || []).forEach((slice, idx) => {
+    lines.push(`${idx === 0 ? 'Outbound' : 'Return'} · ${slice.departure_date || ''}`);
+    lines.push(`  ${slice.origin} → ${slice.destination}`);
+    if (slice.duration) lines.push(`  Duration: ${slice.duration}`);
+    lines.push(`  ${slice.stops === 0 ? 'Direct' : `${slice.stops} stop${slice.stops > 1 ? 's' : ''}`}`);
+    lines.push('');
+  });
+
+  lines.push('PASSENGERS');
+  lines.push('----------');
+  (order.passengers || []).forEach(p => {
+    const name = [p.title, p.given_name, p.family_name].filter(Boolean).join(' ');
+    lines.push(`  ${name}${p.type && p.type !== 'adult' ? ' (' + p.type + ')' : ''}`);
+  });
+  lines.push('');
+
+  if (order.carrier) {
+    lines.push('CARRIER');
+    lines.push('-------');
+    lines.push(`  ${order.carrier}${order.carrier_iata ? ' (' + order.carrier_iata + ')' : ''}`);
+    lines.push('');
+  }
+
+  lines.push('PAYMENT');
+  lines.push('-------');
+  lines.push(`  Base fare:       ${currency}${base}`);
+  lines.push(`  Taxes & fees:    ${currency}${tax}`);
+  lines.push(`  Total paid:      ${currency}${total}`);
+  lines.push('');
+  lines.push(`View your booking online: ${baseUrl}/booking/${order.reference}`);
+  lines.push('');
+  lines.push('Need help? Reply to this email or visit ' + baseUrl + '/contact');
+  lines.push('');
+  lines.push('Lazarus Consulting LLC · Delaware, USA · flightdojo.it.com');
+  lines.push('This is a transactional email regarding your FlightDojo booking.');
+
+  return lines.join('\n');
 }
 
 function bookingConfirmation(order) {
@@ -273,13 +344,31 @@ async function sendBookingConfirmation(order) {
     return false;
   }
 
+  // Plain-text version must substantively match the HTML so SpamAssassin's
+  // MPART_ALT_DIFF rule doesn't fire. Keep the same headings, same info,
+  // same order — just unstyled.
+  const plainText = buildPlainTextConfirmation(order);
+
   try {
     console.log(`📬 → Sending confirmation to ${to} via ${host}…`);
     const info = await transporter.sendMail({
-      from, to, subject, html,
-      text: `Your FlightDojo booking is confirmed.\n\nReference: ${order.booking_reference || order.reference}\nTotal: ${order.total_currency} ${order.total_amount}\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/booking/${order.reference}\n\n— FlightDojo`,
-      // Plain-text fallback header so providers can tell this is transactional
-      headers: { 'X-FlightDojo-Order': order.reference }
+      from,
+      to,
+      subject,
+      html,
+      text: plainText,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      // Headers that improve deliverability and pass Gmail bulk-sender requirements
+      headers: {
+        'X-FlightDojo-Order': order.reference,
+        'X-Mailer': 'FlightDojo',
+        // Transactional — but Gmail still wants List-Unsubscribe on every commercial mail
+        'List-Unsubscribe': `<mailto:unsubscribe@flightdojo.it.com?subject=Unsubscribe-${order.reference}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        // Marks this as transactional to inbox providers
+        'X-Auto-Response-Suppress': 'OOF, AutoReply',
+        'Precedence': 'transactional'
+      }
     });
     console.log('📬 ✓ Confirmation accepted by SMTP server:');
     console.log('   messageId:', info.messageId);
@@ -378,9 +467,51 @@ async function sendBookingPending(order, failureReason) {
   }
 
   try {
+    const currency = order.total_currency === 'EUR' ? 'EUR ' :
+      order.total_currency === 'USD' ? 'USD ' :
+      order.total_currency === 'GBP' ? 'GBP ' : (order.total_currency || '') + ' ';
+    const totalAmt = Math.round(parseFloat(order.total_amount || 0));
+    const firstName = order.passengers?.[0]?.given_name || '';
+
+    const plainText = [
+      'PAYMENT RECEIVED · BOOKING IN PROGRESS',
+      '======================================',
+      '',
+      'We have your payment.',
+      '',
+      `Thank you${firstName ? ', ' + firstName : ''}. We received your payment of ${currency}${totalAmt} successfully, but couldn't finalise the airline booking on the first attempt.`,
+      '',
+      'WHAT HAPPENS NEXT',
+      '-----------------',
+      'Our team has been notified and will manually issue your ticket within one business hour. You will get a separate confirmation email with your PNR as soon as it is done.',
+      '',
+      'You have NOT been charged twice. No action is needed from you. If you do not hear from us within an hour, please reply to this email or contact support with your order ID below.',
+      '',
+      'ORDER REFERENCE',
+      '---------------',
+      order.reference,
+      '',
+      'Need urgent help? Reply to this email.',
+      '',
+      'Lazarus Consulting LLC · Delaware, USA · flightdojo.it.com',
+      'This is a transactional email regarding your FlightDojo order.'
+    ].join('\n');
+
     const info = await transporter.sendMail({
-      from, to, subject, html,
-      text: `Hi${order.passengers?.[0]?.given_name ? ' ' + order.passengers[0].given_name : ''},\n\nWe received your payment for order ${order.reference} but couldn't finalise the airline booking automatically. Our team will issue your ticket manually within one business hour.\n\nYou have not been charged twice. If you don't hear from us, reply to this email.\n\n— FlightDojo`
+      from,
+      to,
+      subject,
+      html,
+      text: plainText,
+      replyTo: process.env.SMTP_REPLY_TO || 'support@flightdojo.it.com',
+      headers: {
+        'X-FlightDojo-Order': order.reference,
+        'X-Mailer': 'FlightDojo',
+        'List-Unsubscribe': `<mailto:unsubscribe@flightdojo.it.com?subject=Unsubscribe-${order.reference}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        'X-Auto-Response-Suppress': 'OOF, AutoReply',
+        'Precedence': 'transactional'
+      }
     });
     console.log('📬 ✓ Pending notice sent:', info.messageId);
     return true;
