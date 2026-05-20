@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
-const { searchOffers, getOffer, createOrder: createDuffelOrder } = require('./services/duffel');
+const { searchOffers, getOffer } = require('./services/duffel');
 const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
@@ -498,49 +498,27 @@ async function handleStripeWebhook(req, res) {
         return res.json({ received: true, already: true });
       }
 
-      // Mark paid
-      order.status = 'paid';
+      // Payment confirmed — the order is "booked" from FlightDojo's perspective.
+      // We have the customer's money and full passenger details. The actual
+      // ticket will be issued manually by the operations team using whatever
+      // channel they prefer (consolidator, GDS, direct airline contact, etc.).
+      //
+      // Our `reference` (FD-XXXX-YYYY) is what the customer uses — they don't
+      // see the airline PNR until ops issues the ticket and updates the order.
+      order.status = 'booked';
       order.stripe_payment_status = pi.status;
       order.stripe_payment_method = pi.payment_method_types?.[0] || null;
+      // Use our own reference as the booking_reference until ops updates it
+      // with the airline PNR. The confirmation email shows whichever exists.
+      order.booking_reference = order.booking_reference || order.reference;
       await order.save();
-      console.log(`💳 Payment confirmed for ${reference} — attempting Duffel order…`);
+      console.log(`✓ Order received ${reference} — pending manual ticketing by ops`);
 
-      // Create Duffel order
-      try {
-        const duffelOrder = await createDuffelOrder({
-          offerId: order.duffel_offer_id,
-          passengers: order.passengers,
-          contact: { email: order.contact_email, phone: order.contact_phone },
-          amount: order.total_amount,
-          currency: order.total_currency
-        });
-        order.duffel_order_id = duffelOrder.id;
-        order.booking_reference = duffelOrder.booking_reference;
-        order.status = 'booked';
+      // Send confirmation email to the customer
+      const sent = await mailer.sendBookingConfirmation(order.toObject());
+      if (sent) {
+        order.email_sent_at = new Date();
         await order.save();
-        console.log(`✓ Booked ${reference} → ${duffelOrder.booking_reference}`);
-      } catch (err) {
-        console.error('Duffel order failed after payment:', err.errors || err.message);
-        order.status = 'failed';
-        order.failure_reason = err.errors?.[0]?.message || err.message || 'Booking creation failed';
-        await order.save();
-      }
-
-      // Send the appropriate email based on outcome
-      if (order.status === 'booked') {
-        const sent = await mailer.sendBookingConfirmation(order.toObject());
-        if (sent) {
-          order.email_sent_at = new Date();
-          await order.save();
-        }
-      } else if (order.status === 'failed') {
-        // Customer was charged but no PNR. Send a "we have your payment, we're
-        // working on it" email so they're not left in the dark.
-        const sent = await mailer.sendBookingPending(order.toObject(), order.failure_reason);
-        if (sent) {
-          order.email_sent_at = new Date();
-          await order.save();
-        }
       }
     } catch (err) {
       console.error('Webhook processing error:', err);

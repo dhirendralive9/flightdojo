@@ -24,16 +24,17 @@
         <i data-lucide="check" style="width:42px;height:42px;"></i>
       </div>
       <div class="bks-eyebrow">Confirmed</div>
-      <h1 class="bks-title">Your trip is booked.</h1>
+      <h1 class="bks-title">Booking received.</h1>
       <p class="bks-sub">
-        A confirmation email is on its way to <strong><%= order ? order.contact_email : '' %></strong>.
-        Save your booking reference — you'll need it at check-in.
+        Thank you. We've received your booking and payment. A confirmation email
+        is on its way to <strong><%= order ? order.contact_email : '' %></strong>,
+        and your airline booking reference (PNR) will follow within 2 business hours.
       </p>
 
       <% if (order) { %>
         <div class="bks-pnr">
-          <div class="bks-pnr-label">Booking Reference</div>
-          <div class="bks-pnr-code"><%= order.booking_reference || order.reference %></div>
+          <div class="bks-pnr-label">FlightDojo Order ID</div>
+          <div class="bks-pnr-code"><%= order.reference %></div>
         </div>
 
         <div class="bks-trip-summary">

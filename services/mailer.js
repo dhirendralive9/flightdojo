@@ -147,19 +147,25 @@ function bookingConfirmation(order) {
         Booking Confirmed
       </div>
       <h1 style="margin:0 0 18px 0;font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:800;color:${TEXT};line-height:1.1;">
-        Your trip is booked.
+        Your booking is confirmed.
       </h1>
-      <p style="margin:0 0 24px 0;font-size:14px;color:${MUTED};line-height:1.65;">
+      <p style="margin:0 0 16px 0;font-size:14px;color:${MUTED};line-height:1.65;">
         Thank you${order.passengers?.[0]?.given_name ? ', ' + escapeHtml(order.passengers[0].given_name) : ''}.
-        Your flight booking is confirmed. Save this email or keep it accessible — you'll need the booking reference below at check-in.
+        We've received your booking and payment for the trip below.
+      </p>
+      <p style="margin:0 0 24px 0;font-size:14px;color:${MUTED};line-height:1.65;">
+        Our team is now issuing your ticket with the airline. You'll receive a second email within <strong style="color:${TEXT};">2 business hours</strong> containing your airline booking reference (PNR), which you'll use at check-in. If you don't see it, please check your spam folder or reply to this email.
       </p>
 
       <div style="background:${SOFT};border-left:3px solid ${CORAL};padding:14px 18px;margin-bottom:24px;">
         <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${MUTED};font-weight:600;margin-bottom:4px;">
-          Booking Reference
+          FlightDojo Order ID
         </div>
         <div style="font-family:Georgia,serif;font-size:22px;font-weight:800;color:${TEXT};letter-spacing:0.08em;">
-          ${escapeHtml(order.booking_reference || order.reference)}
+          ${escapeHtml(order.reference)}
+        </div>
+        <div style="font-size:11px;color:${MUTED};margin-top:6px;">
+          Quote this number for any support enquiries.
         </div>
       </div>
 
