@@ -172,31 +172,22 @@
     <button class="view-all">View all routes <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></button>
   </div>
 
-  <div class="routes-grid stagger">
-    <% const routes = [
-      ['DEL','LHR','Delhi Indira Gandhi → London Heathrow','€489','Direct'],
-      ['BOM','MXP','Mumbai Chhatrapati → Milan Malpensa','€532','Direct'],
-      ['DEL','JFK','Delhi Indira Gandhi → New York JFK','$612','1 Stop'],
-      ['CCU','CDG','Kolkata Netaji → Paris Charles de Gaulle','€411','1 Stop'],
-      ['MAA','FCO','Chennai Int\'l → Rome Fiumicino','€498','1 Stop'],
-      ['BLR','SIN','Bengaluru Kempegowda → Singapore Changi','$218','Direct']
-    ]; %>
-    <% routes.forEach(r => { %>
-      <a href="/search?origin=<%= r[0] %>&destination=<%= r[1] %>&depart=<%= prefill.depart %>&ret=<%= prefill.return %>&passengers=1" class="r-card">
+  <div class="routes-grid stagger" id="popularRoutesGrid">
+    <% popular.forEach(p => { %>
+      <a href="/search?origin=<%= prefill.origin %>&destination=<%= p.iata %>&depart=<%= prefill.depart %>&ret=<%= prefill.return %>&passengers=1" class="r-card" data-popular-card data-iata="<%= p.iata %>">
         <div class="r-route">
-          <span class="r-iata"><%= r[0] %></span>
+          <span class="r-iata" data-origin-iata><%= prefill.origin %></span>
           <span class="r-arrow"><i data-lucide="arrow-right" style="width:16px;height:16px;"></i></span>
-          <span class="r-iata"><%= r[1] %></span>
+          <span class="r-iata"><%= p.iata %></span>
         </div>
-        <div class="r-name"><%= r[2] %></div>
+        <div class="r-name"><%= p.city %><% if (p.country) { %>, <%= p.country %><% } %></div>
         <div class="r-footer">
           <div>
-            <span class="r-from">From</span>
-            <div class="r-price"><%= r[3] %></div>
+            <span class="r-from"><%= p.tag %></span>
           </div>
           <div class="r-badge">
-            <i data-lucide="<%= r[4] === 'Direct' ? 'plane' : 'git-branch' %>" style="width:11px;height:11px;"></i>
-            <%= r[4] %>
+            <i data-lucide="plane" style="width:11px;height:11px;"></i>
+            Search
           </div>
         </div>
       </a>

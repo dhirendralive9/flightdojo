@@ -1,10 +1,27 @@
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const host = process.env.SMTP_HOST;
 const port = parseInt(process.env.SMTP_PORT || '587', 10);
 const user = process.env.SMTP_USER;
 const pass = process.env.SMTP_PASS;
 const from = process.env.SMTP_FROM || 'FlightDojo <noreply@flightdojo.it.com>';
+
+// Compute the public, tokenized booking URL for an order. Single source of
+// truth — used by every email template so all "View booking" links work
+// without login. Caller can override by setting order.public_url.
+function publicBookingUrl(order) {
+  if (!order || !order.reference) return null;
+  if (order.public_url) return order.public_url;
+  const baseUrl = (process.env.BASE_URL || 'https://flightdojo.it.com').replace(/\/+$/, '');
+  const secret = process.env.SESSION_SECRET || 'flightdojo-dev-secret-CHANGE-IN-PRODUCTION';
+  const token = crypto
+    .createHmac('sha256', secret)
+    .update(`order-view:${order.reference}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `${baseUrl}/booking/${order.reference}?t=${token}`;
+}
 
 const configured = host && user && pass && !user.includes('REPLACE_ME');
 
@@ -228,7 +245,7 @@ function buildPlainTextConfirmation(order) {
   lines.push(`  Taxes & fees:    ${currency}${tax}`);
   lines.push(`  Total paid:      ${currency}${total}`);
   lines.push('');
-  lines.push(`View your booking online: ${baseUrl}/booking/${order.reference}`);
+  lines.push(`View your booking online: ${publicBookingUrl(order) || (baseUrl + '/booking/' + order.reference)}`);
   lines.push('');
   lines.push('Need help? Reply to this email or visit ' + baseUrl + '/contact');
   lines.push('');
@@ -366,7 +383,7 @@ function bookingConfirmation(order) {
       </div>
 
       <div style="text-align:center;margin:24px 0 8px;">
-        <a href="${escapeHtml(process.env.BASE_URL || 'https://flightdojo.it.com')}/booking/${escapeHtml(order.reference)}"
+        <a href="${publicBookingUrl(order) || (escapeHtml(process.env.BASE_URL || 'https://flightdojo.it.com') + '/booking/' + escapeHtml(order.reference))}"
            style="display:inline-block;background:${CORAL};color:#fff;text-decoration:none;font-family:Georgia,serif;font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;padding:14px 28px;border-radius:4px;">
           View booking online →
         </a>
@@ -567,19 +584,21 @@ module.exports = {
 // TICKET ISSUED (ops marks order ticketed)
 // ───────────────────────────────────────────────────────────
 async function sendTicketIssued(order, pnr) {
+  const viewUrl = publicBookingUrl(order);
+
   const html = buildAccountEmail({
     headline: 'Ticket Issued',
     subheadline: 'Your airline booking reference is ready',
     intro: `Good news${order.passengers?.[0]?.given_name ? ', ' + escapeHtml(order.passengers[0].given_name) : ''}. Your ticket has been issued by the airline. Use the reference below at check-in, and for any communication with the airline directly.`,
-    ctaUrl: `${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}`,
-    ctaLabel: 'View my trip',
+    ctaUrl: viewUrl,
+    ctaLabel: 'View my booking',
     securityNote: `<strong>Airline reference (PNR):</strong> <code style="font-size:14px;background:#fff;padding:3px 6px;border-radius:3px;letter-spacing:0.08em;font-weight:700;">${escapeHtml(pnr)}</code><br/>Your FlightDojo order ID is <strong>${escapeHtml(order.reference)}</strong>.`
   });
   return sendAndLog({
     to: order.contact_email,
     subject: `Your ticket is ready · ${pnr}`,
     html,
-    text: `Your ticket has been issued.\n\nAirline reference (PNR): ${pnr}\nFlightDojo order: ${order.reference}\n\nUse the PNR at check-in.\n\nView online: ${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}\n\n— FlightDojo`,
+    text: `Your ticket has been issued.\n\nAirline reference (PNR): ${pnr}\nFlightDojo order: ${order.reference}\n\nUse the PNR at check-in.\n\nView online: ${viewUrl}\n\n— FlightDojo`,
     template: 'ticket_issued',
     user_id: order.user_id || null,
     order_reference: order.reference
@@ -591,11 +610,12 @@ async function sendTicketIssued(order, pnr) {
 // ───────────────────────────────────────────────────────────
 async function sendRefundIssued(order, refund) {
   const currency = order.total_currency || refund.currency || 'EUR';
+  const viewUrl = publicBookingUrl(order);
   const html = buildAccountEmail({
     headline: 'Refund Issued',
     subheadline: `${currency} ${refund.amount} has been refunded`,
     intro: `We've issued a refund of <strong>${currency} ${refund.amount}</strong> for your order <strong>${escapeHtml(order.reference)}</strong>. Refunds typically appear in your account within 5-10 business days, depending on your bank.`,
-    ctaUrl: `${process.env.BASE_URL || 'https://flightdojo.it.com'}/account/bookings/${order.reference}`,
+    ctaUrl: viewUrl,
     ctaLabel: 'View order',
     securityNote: refund.reason ? `<strong>Reason:</strong> ${escapeHtml(refund.reason)}${refund.notes ? '<br/><br/>' + escapeHtml(refund.notes) : ''}` : null
   });

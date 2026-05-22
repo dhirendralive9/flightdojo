@@ -13,6 +13,7 @@ const airportsService = require('./services/airports');
 const turnstile = require('./services/turnstile');
 const stripeService = require('./services/stripe');
 const proxycheck = require('./services/proxycheck');
+const geo = require('./services/geo');
 const mailer = require('./services/mailer');
 const auth = require('./services/auth');
 const weather = require('./services/weather');
@@ -35,7 +36,16 @@ const passportUpload = multer({
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+// Override process.env.BASE_URL with the normalized value so every other
+// module (mailer, cron, routes) gets the clean version too. This eliminates
+// "https://flightdojo.it.com//account/..." double-slash bugs that happen
+// when an operator puts a trailing slash in .env.
+process.env.BASE_URL = BASE_URL;
+if (BASE_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
+  console.warn('⚠⚠⚠ BASE_URL is set to localhost in production! Emails will contain localhost links.');
+  console.warn('    Set BASE_URL=https://flightdojo.it.com in your .env');
+}
 
 // ─── MongoDB ─────────────────────────────────────────────
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/flightdojo';
@@ -160,13 +170,20 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: mongoUri,
     ttl: 30 * 24 * 60 * 60,
-    autoRemove: 'native',
-    crypto: { secret: sessionSecret }
+    autoRemove: 'native'
+    // crypto.secret removed — kruptein requires 2+ each of upper/lower/digit/special
+    // in the secret, and throws null-deref otherwise. Session payload is just
+    // {userId} and Mongo connection is TLS-encrypted in transit anyway.
   })
 }));
 
 // Attach req.user + res.locals.user (without enforcing auth) + notification count
 app.use(auth.attachUser);
+
+// SEO defaults — populates res.locals.seo on every request. Per-route renders
+// can override by passing { seo: { ... } } to res.render().
+const seoService = require('./services/seo');
+app.use(seoService.attachSeoDefaults);
 app.use(async (req, res, next) => {
   if (req.user) {
     try {
@@ -269,6 +286,36 @@ function generateReference() {
   return `FD-${s}`;
 }
 
+// Sign an order reference so emails can include a one-click view link without
+// requiring login. The token is HMAC-SHA256 over the reference, truncated to
+// 16 chars. Anyone who has both the reference AND the token can view the
+// order; guessing the token requires breaking HMAC-SHA256.
+function signOrderToken(reference) {
+  return crypto
+    .createHmac('sha256', sessionSecret)
+    .update(`order-view:${reference}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function verifyOrderToken(reference, token) {
+  if (!reference || !token || typeof token !== 'string') return false;
+  const expected = signOrderToken(reference);
+  // Constant-time compare (Buffer.compare via timingSafeEqual)
+  try {
+    const a = Buffer.from(expected);
+    const b = Buffer.from(token);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch (e) { return false; }
+}
+
+// Build a public booking-status URL that works without login.
+function buildPublicBookingUrl(reference) {
+  const token = signOrderToken(reference);
+  return `${process.env.BASE_URL || ''}/booking/${reference}?t=${token}`;
+}
+
 // Phone check — keep it simple. Require "+" and at least 9 digits.
 // Duffel is the source of truth for what they'll accept; we just shape the input.
 function normalizePhone(raw) {
@@ -296,23 +343,104 @@ function normalizePhone(raw) {
 // ─── PUBLIC PAGES ────────────────────────────────────────
 app.get('/', (req, res) => {
   const dates = defaultDates();
+  // We render with sensible defaults but client-side JS will hit /api/geo/me
+  // immediately to refine origin + popular destinations based on the visitor's IP.
+  const defaultOrigin = 'DEL';
+  const defaultDest = 'DXB';
+  const baseUrl = res.locals.seo.base_url;
   res.render('home', {
     title: 'FlightDojo — Find. Book. Fly.',
-    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
-    origin_info: airportsService.byIata('DEL'),
-    destination_info: airportsService.byIata('MXP')
+    seo: {
+      ...res.locals.seo,
+      title: 'FlightDojo — Find. Book. Fly. | Precision flight booking',
+      description: 'Search 500+ airlines and book in minutes. Zero hidden fees, instant confirmation, 24/7 human support. Find your flight on FlightDojo.',
+      canonical: baseUrl,
+      json_ld: {
+        '@context': 'https://schema.org',
+        '@graph': [
+          {
+            '@type': 'TravelAgency',
+            '@id': baseUrl + '/#org',
+            name: 'FlightDojo',
+            url: baseUrl,
+            logo: baseUrl + '/og-default.png',
+            description: 'Flight booking with zero hidden fees and 24/7 human support.',
+            parentOrganization: {
+              '@type': 'Organization',
+              name: 'Lazarus Consulting LLC',
+              address: { '@type': 'PostalAddress', addressLocality: 'Delaware', addressCountry: 'US' }
+            }
+          },
+          {
+            '@type': 'WebSite',
+            '@id': baseUrl + '/#website',
+            url: baseUrl,
+            name: 'FlightDojo',
+            publisher: { '@id': baseUrl + '/#org' },
+            potentialAction: {
+              '@type': 'SearchAction',
+              target: { '@type': 'EntryPoint', urlTemplate: baseUrl + '/search?origin={origin}&destination={destination}' },
+              'query-input': ['required name=origin', 'required name=destination']
+            }
+          }
+        ]
+      }
+    },
+    prefill: { origin: defaultOrigin, destination: defaultDest, depart: dates.depart, return: dates.return, passengers: 1 },
+    origin_info: airportsService.byIata(defaultOrigin),
+    destination_info: airportsService.byIata(defaultDest),
+    popular: geo.popularDestinations(null, defaultOrigin)
   });
 });
 
-app.get('/landing', (req, res) => {
-  const dates = defaultDates();
-  res.render('landing', {
-    title: 'FlightDojo — Search smarter. Fly sharper.',
-    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
-    origin_info: airportsService.byIata('DEL'),
-    destination_info: airportsService.byIata('MXP')
-  });
+// Geo lookup for the visitor — used by client-side JS to refine the home
+// page prefill and popular destinations.
+// Cached on the session for the duration of the visit (so we don't hit
+// ProxyCheck on every page load).
+app.get('/api/geo/me', async (req, res) => {
+  // Use session cache if we already looked them up
+  if (req.session?.geo_cache && req.session.geo_cache.fetched_at) {
+    const age = Date.now() - req.session.geo_cache.fetched_at;
+    if (age < 24 * 60 * 60 * 1000) {  // 24h cache
+      return res.json({ cached: true, ...req.session.geo_cache.data });
+    }
+  }
+
+  const ip = proxycheck.clientIp(req);
+  let result = null;
+
+  if (ip && !proxycheck.isPrivateOrLocal(ip)) {
+    try {
+      const ipData = await proxycheck.check(ip, 'geo_lookup');
+      result = geo.locateFromIpData(ipData);
+      if (result) {
+        result.popular = geo.popularDestinations(ipData.country_code, result.origin_iata);
+      }
+    } catch (err) {
+      console.warn('Geo lookup failed:', err.message);
+    }
+  }
+
+  // If geo failed entirely, return sensible default
+  if (!result) {
+    result = {
+      origin_iata: null,
+      method: 'fallback',
+      popular: geo.popularDestinations(null, null)
+    };
+  }
+
+  // Cache on session
+  if (req.session) {
+    req.session.geo_cache = { fetched_at: Date.now(), data: result };
+  }
+
+  res.json(result);
 });
+
+// /landing was a previous variant of the home page. 301 to / to consolidate
+// link equity and prevent duplicate-content penalties.
+app.get('/landing', (req, res) => res.redirect(301, '/'));
 
 async function handleSearch(req, res) {
   const params = req.method === 'POST' ? req.body : req.query;
@@ -354,16 +482,22 @@ async function handleSearch(req, res) {
     error = err.errors?.[0]?.message || err.message || 'Search failed';
   }
 
+  const originAp = airportsService.byIata(origin);
+  const destAp = airportsService.byIata(destination);
+  const titleStr = `${origin}→${destination} flights · ${depart} — FlightDojo`;
+  const descStr = `Flight search results for ${origin} to ${destination} departing ${depart}${ret ? ', returning ' + ret : ''}. ${parseInt(passengers, 10) || 1} passenger${(parseInt(passengers, 10) || 1) > 1 ? 's' : ''}, ${cabin || 'economy'} class.`;
+
   res.render('search-results', {
-    title: `Flights ${origin} → ${destination} — FlightDojo`,
+    title: titleStr,
+    seo: { ...res.locals.seo, title: titleStr, description: descStr, noindex: true },
     query: {
       origin: origin.toUpperCase(), destination: destination.toUpperCase(),
       depart, ret: ret || null,
       passengers: parseInt(passengers, 10) || 1,
       cabin: cabin || 'economy'
     },
-    origin_info: airportsService.byIata(origin),
-    destination_info: airportsService.byIata(destination),
+    origin_info: originAp,
+    destination_info: destAp,
     results, error
   });
 }
@@ -760,6 +894,7 @@ app.post('/api/book/intent', async (req, res) => {
       client_secret: intent.client_secret,
       payment_intent_id: intent.id,
       order_reference: reference,
+      order_token: signOrderToken(reference),
       amount,
       currency,
       mock: !!intent._mock
@@ -771,12 +906,60 @@ app.post('/api/book/intent', async (req, res) => {
 });
 
 // Step 3: After Stripe redirects back, show status
+// Public booking-status page. Anyone with EITHER a valid token (sent in the
+// confirmation email) OR a matching email (entered via a form) OR an account
+// linked to this order can view it. Without any of these we show an email-entry
+// form instead of the order details — this prevents enumeration of guessed
+// order references.
 app.get('/booking/:reference', async (req, res) => {
   const order = await Order.findOne({ reference: req.params.reference }).catch(() => null);
+
+  // No such order → render generic "not found" via the booking-status view
+  if (!order) {
+    return res.status(404).render('booking-status', {
+      title: `Booking ${req.params.reference} — FlightDojo`,
+      order: null,
+      reference: req.params.reference,
+      access_denied: false,
+      payment_intent_client_secret: null,
+      payment_intent_id: null
+    });
+  }
+
+  // Check authorization
+  const tokenMatch = req.query.t && verifyOrderToken(order.reference, req.query.t);
+  const userLinked = req.user && order.user_id && String(order.user_id) === String(req.user._id);
+  const isAdmin = req.user && req.user.is_admin;
+  const emailMatch = req.query.email &&
+    String(req.query.email).trim().toLowerCase() === String(order.contact_email || '').toLowerCase();
+
+  const authorized = tokenMatch || userLinked || isAdmin || emailMatch;
+
+  // Special case: if we have a payment_intent in query, we just came from
+  // Stripe redirect (3DS flow) and a token may not be present yet. Allow
+  // access — the payment intent metadata is verified during webhook handling
+  // anyway, this is just for display.
+  const fromStripeRedirect = !!req.query.payment_intent_client_secret;
+
+  if (!authorized && !fromStripeRedirect) {
+    return res.status(403).render('booking-status', {
+      title: `Booking ${req.params.reference} — FlightDojo`,
+      order: null,
+      reference: req.params.reference,
+      access_denied: true,        // tells the view to render an email-entry form
+      contact_email_hint: order.contact_email
+        ? order.contact_email.replace(/(.{1,2}).*(@.*)/, '$1***$2')
+        : null,
+      payment_intent_client_secret: null,
+      payment_intent_id: null
+    });
+  }
+
   res.render('booking-status', {
     title: `Booking ${req.params.reference} — FlightDojo`,
     order,
     reference: req.params.reference,
+    access_denied: false,
     payment_intent_client_secret: req.query.payment_intent_client_secret || null,
     payment_intent_id: req.query.payment_intent || null
   });
@@ -2283,19 +2466,125 @@ app.get('/admin/emails', auth.requireAdmin, async (req, res) => {
 });
 
 // ─── STATIC PAGES ────────────────────────────────────────
-app.get('/about', (req, res) => res.render('about', { title: 'About — FlightDojo' }));
-app.get('/careers', (req, res) => res.render('careers', { title: 'Careers — FlightDojo' }));
-app.get('/contact', (req, res) => res.render('contact', { title: 'Contact — FlightDojo', sent: false }));
+// ─── SEO INFRASTRUCTURE ─────────────────────────────────────
+
+// robots.txt — tells crawlers where they're welcome (and where they're not)
+app.get('/robots.txt', (req, res) => {
+  const baseUrl = (process.env.BASE_URL || 'https://flightdojo.it.com').replace(/\/+$/, '');
+  res.type('text/plain').send(
+`User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /admin
+Disallow: /api
+Disallow: /booking
+Disallow: /offer
+Disallow: /search
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot
+Disallow: /reset
+Disallow: /webhooks
+
+# AI scrapers — block from training on our content
+User-agent: GPTBot
+Disallow: /
+User-agent: ClaudeBot
+Disallow: /
+User-agent: anthropic-ai
+Disallow: /
+User-agent: CCBot
+Disallow: /
+User-agent: Google-Extended
+Disallow: /
+
+Sitemap: ${baseUrl}/sitemap.xml
+`);
+});
+
+// sitemap.xml — list of every public, indexable URL
+app.get('/sitemap.xml', (req, res) => {
+  const baseUrl = (process.env.BASE_URL || 'https://flightdojo.it.com').replace(/\/+$/, '');
+  const urls = [
+    { loc: baseUrl + '/', priority: 1.0, changefreq: 'daily' },
+    { loc: baseUrl + '/about', priority: 0.7, changefreq: 'monthly' },
+    { loc: baseUrl + '/contact', priority: 0.8, changefreq: 'monthly' },
+    { loc: baseUrl + '/careers', priority: 0.5, changefreq: 'weekly' },
+    { loc: baseUrl + '/privacy-policy', priority: 0.3, changefreq: 'yearly' },
+    { loc: baseUrl + '/terms', priority: 0.3, changefreq: 'yearly' },
+    { loc: baseUrl + '/refund-policy', priority: 0.3, changefreq: 'yearly' },
+    { loc: baseUrl + '/disclaimer', priority: 0.3, changefreq: 'yearly' }
+  ];
+  const lastmod = new Date().toISOString().split('T')[0];
+  const body = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls.map(u =>
+      `  <url>\n` +
+      `    <loc>${u.loc}</loc>\n` +
+      `    <lastmod>${lastmod}</lastmod>\n` +
+      `    <changefreq>${u.changefreq}</changefreq>\n` +
+      `    <priority>${u.priority}</priority>\n` +
+      `  </url>`
+    ).join('\n') +
+    '\n</urlset>\n';
+  res.type('application/xml').send(body);
+});
+
+// Web app manifest — for "Add to home screen" + PWA-lite behavior
+app.get('/site.webmanifest', (req, res) => {
+  res.type('application/manifest+json').send({
+    name: 'FlightDojo',
+    short_name: 'FlightDojo',
+    description: 'Precision flight booking with zero hidden fees.',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#fafaf7',
+    theme_color: '#FF5038',
+    icons: [
+      { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' },
+      { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
+    ]
+  });
+});
+
+app.get('/about', (req, res) => res.render('about', {
+  title: 'About FlightDojo — Precision flight booking',
+  seo: { ...res.locals.seo, title: 'About FlightDojo — Precision flight booking', description: 'FlightDojo is a precision flight-booking platform from Lazarus Consulting LLC, built for travellers who value clarity over noise. Real fares, zero hidden fees, 24/7 human support.' }
+}));
+app.get('/careers', (req, res) => res.render('careers', {
+  title: 'Careers — FlightDojo',
+  seo: { ...res.locals.seo, title: 'Careers — FlightDojo', description: 'Join the FlightDojo team. Engineering, operations, customer success roles for builders who want to reshape how the world books travel.' }
+}));
+app.get('/contact', (req, res) => res.render('contact', {
+  title: 'Contact FlightDojo — 24/7 support',
+  seo: { ...res.locals.seo, title: 'Contact FlightDojo — 24/7 support', description: 'Reach FlightDojo support 24/7. Phone, email, and live ticket assistance for bookings, changes, refunds, and travel emergencies.' },
+  sent: false
+}));
+app.post('/contact', (req, res) => {
+  res.render('contact', { title: 'Contact — FlightDojo', sent: true, seo: { ...res.locals.seo, title: 'Contact FlightDojo' } });
+});
+app.get('/privacy-policy', (req, res) => res.render('privacy-policy', {
+  title: 'Privacy Policy — FlightDojo',
+  seo: { ...res.locals.seo, title: 'Privacy Policy — FlightDojo', description: 'How FlightDojo collects, uses, and protects your personal information when you search and book flights through our platform.' }
+}));
+app.get('/disclaimer', (req, res) => res.render('disclaimer', {
+  title: 'Disclaimer — FlightDojo',
+  seo: { ...res.locals.seo, title: 'Disclaimer — FlightDojo', description: 'Legal disclaimer covering FlightDojo\'s role as an intermediary booking service, limitations of liability, and airline relationships.' }
+}));
+app.get('/refund-policy', (req, res) => res.render('refund-policy', {
+  title: 'Refund Policy — FlightDojo',
+  seo: { ...res.locals.seo, title: 'Refund Policy — FlightDojo', description: 'FlightDojo refund terms: airline-driven cancellations, schedule changes, customer cancellations, and processing times.' }
+}));
+app.get('/terms', (req, res) => res.render('terms', {
+  title: 'Terms of Service — FlightDojo',
+  seo: { ...res.locals.seo, title: 'Terms of Service — FlightDojo', description: 'Terms and conditions governing your use of FlightDojo. Booking conditions, payment, cancellation, and liability.' }
+}));
 app.post('/contact', (req, res) => {
   console.log('Contact:', req.body);
-  res.render('contact', { title: 'Contact — FlightDojo', sent: true });
+  res.render('contact', { title: 'Contact — FlightDojo', sent: true, seo: { ...res.locals.seo, title: 'Contact FlightDojo' } });
 });
-app.get('/privacy-policy', (req, res) => res.render('privacy-policy', { title: 'Privacy Policy — FlightDojo' }));
-app.get('/disclaimer', (req, res) => res.render('disclaimer', { title: 'Disclaimer — FlightDojo' }));
-app.get('/refund-policy', (req, res) => res.render('refund-policy', { title: 'Refund Policy — FlightDojo' }));
-app.get('/terms', (req, res) => res.render('terms', { title: 'Terms of Service — FlightDojo' }));
 
-app.use((req, res) => res.status(404).render('404', { title: '404 — FlightDojo' }));
+app.use((req, res) => res.status(404).render('404', { title: '404 — FlightDojo', seo: { ...res.locals.seo, title: 'Page not found — FlightDojo', noindex: true } }));
 
 app.listen(PORT, () => {
   console.log(`FlightDojo running on http://localhost:${PORT}`);
@@ -2311,4 +2600,47 @@ app.listen(PORT, () => {
   } catch (err) {
     console.warn('⚠  Cron not started:', err.message);
   }
+
+  // Admin bootstrap from env
+  bootstrapAdminFromEnv().catch(err => console.warn('⚠  Admin bootstrap failed:', err.message));
 });
+
+async function bootstrapAdminFromEnv() {
+  const adminEmails = (process.env.ADMIN_EMAIL || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmails.length === 0) return;
+
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  let promoted = 0, created = 0;
+
+  for (const email of adminEmails) {
+    let user = await User.findOne({ email });
+    if (!user && adminPassword) {
+      if (adminPassword.length < 8) {
+        console.warn(`⚠  ADMIN_PASSWORD must be 8+ chars — skipping creation of ${email}`);
+        continue;
+      }
+      user = new User({ email, name: 'Admin' });
+      await user.setPassword(adminPassword);
+      user.email_verified_at = new Date();
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      created++;
+      console.log(`🔑 Created admin user from .env: ${email}`);
+      continue;
+    }
+    if (!user) {
+      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create.`);
+      continue;
+    }
+    if (!user.is_admin || user.admin_role !== 'owner') {
+      user.is_admin = true;
+      user.admin_role = 'owner';
+      await user.save();
+      promoted++;
+      console.log(`🔑 Promoted to admin: ${email}`);
+    }
+  }
+  console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+}

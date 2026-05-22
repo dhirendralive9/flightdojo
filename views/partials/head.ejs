@@ -3,8 +3,64 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title><%= title %></title>
-<meta name="description" content="FlightDojo — precision flight search for travellers who mean business. Real-time fares, zero hidden fees, 24/7 human support."/>
+
+<%
+  // Each page render can override these by passing seo.{title|description|canonical|og_image|noindex|og_type}.
+  // The shared res.locals.seo object provides safe defaults.
+  const _seo = (typeof seo !== 'undefined' && seo) ? seo : (typeof res !== 'undefined' && res.locals && res.locals.seo) || {};
+  const _title = (typeof title !== 'undefined' && title) ? title : (_seo.title || 'FlightDojo — Find. Book. Fly.');
+  const _desc = _seo.description || 'FlightDojo finds you precision flights with zero hidden fees and 24/7 human support. Search 500+ airlines and book in minutes.';
+  const _canonical = _seo.canonical || '';
+  const _ogImage = _seo.og_image || '';
+  const _ogType = _seo.og_type || 'website';
+  const _noindex = !!_seo.noindex;
+  const _siteName = _seo.site_name || 'FlightDojo';
+  const _twHandle = _seo.twitter_handle || '@flightdojo';
+  const _locale = _seo.locale || 'en_US';
+  const _jsonLd = _seo.json_ld || null;
+%>
+
+<title><%= _title %></title>
+<meta name="description" content="<%= _desc %>"/>
+
+<% if (_noindex) { %>
+  <meta name="robots" content="noindex,nofollow"/>
+<% } else { %>
+  <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1"/>
+<% } %>
+
+<% if (_canonical) { %>
+  <link rel="canonical" href="<%= _canonical %>"/>
+<% } %>
+
+<!-- Open Graph -->
+<meta property="og:site_name" content="<%= _siteName %>"/>
+<meta property="og:type" content="<%= _ogType %>"/>
+<meta property="og:title" content="<%= _title %>"/>
+<meta property="og:description" content="<%= _desc %>"/>
+<% if (_canonical) { %><meta property="og:url" content="<%= _canonical %>"/><% } %>
+<% if (_ogImage) { %>
+<meta property="og:image" content="<%= _ogImage %>"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:image:alt" content="<%= _title %>"/>
+<% } %>
+<meta property="og:locale" content="<%= _locale %>"/>
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:site" content="<%= _twHandle %>"/>
+<meta name="twitter:title" content="<%= _title %>"/>
+<meta name="twitter:description" content="<%= _desc %>"/>
+<% if (_ogImage) { %><meta name="twitter:image" content="<%= _ogImage %>"/><% } %>
+
+<!-- Favicons -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+<link rel="manifest" href="/site.webmanifest"/>
+<meta name="theme-color" content="#FF5038"/>
+
+<!-- Preconnect -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
@@ -12,8 +68,34 @@
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script>
 (function(){var s=localStorage.getItem('fd-theme');document.documentElement.setAttribute('data-theme',(s==='dark'||s==='light')?s:'light');})();
-window.FD_TURNSTILE_SITEKEY = '<%= turnstileSitekey %>';
+window.FD_TURNSTILE_SITEKEY = '<%= typeof turnstileSitekey !== "undefined" ? turnstileSitekey : "" %>';
 </script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=fdTurnstileLoad&render=explicit" defer></script>
+
+<!-- JSON-LD structured data (page-specific, falls back to TravelAgency) -->
+<% if (_jsonLd) { %>
+<script type="application/ld+json"><%- typeof _jsonLd === 'string' ? _jsonLd : JSON.stringify(_jsonLd) %></script>
+<% } else { %>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TravelAgency",
+  "name": "FlightDojo",
+  "url": "<%= _seo.base_url || 'https://flightdojo.it.com' %>",
+  "logo": "<%= (_seo.base_url || 'https://flightdojo.it.com') + '/og-default.png' %>",
+  "description": "Flight booking with zero hidden fees and 24/7 human support.",
+  "parentOrganization": {
+    "@type": "Organization",
+    "name": "Lazarus Consulting LLC",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Delaware",
+      "addressCountry": "US"
+    }
+  },
+  "sameAs": []
+}
+</script>
+<% } %>
 </head>
 <body>
