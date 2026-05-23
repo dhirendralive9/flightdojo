@@ -10,11 +10,11 @@
   const pnr = order.booking_reference || order.reference;
   const firstSlice = (order.slices || [])[0] || {};
   const lastSlice = (order.slices || [])[order.slices.length - 1] || firstSlice;
-  const originIata = firstSlice.origin || '?';
-  const destIata = lastSlice.destination || '?';
-  const originName = firstSlice.origin_name || '';
-  const destName = lastSlice.destination_name || '';
   const isRoundTrip = order.slices && order.slices.length > 1;
+  const originIata = firstSlice.origin || '?';
+  const destIata = firstSlice.destination || '?';
+  const originName = firstSlice.origin_name || '';
+  const destName = firstSlice.destination_name || '';
   const paxCount = order.passenger_count || (order.passengers || []).length || 1;
   const carrier = order.carrier || ((firstSlice.segments || [])[0] || {}).carrier || '';
   const departDate = firstSlice.departure_date || '';
