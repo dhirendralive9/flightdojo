@@ -2399,6 +2399,134 @@ footer.site-footer {
   z-index: 100;
 }
 
+/* ─── Call modal (landing page) ─── */
+.cm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: cmFadeIn 0.3s ease;
+}
+@keyframes cmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cm-card {
+  background: var(--surface);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 410px;
+  padding: 36px 30px 26px;
+  text-align: center;
+  position: relative;
+  animation: cmSlideUp 0.35s ease;
+}
+@keyframes cmSlideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cm-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.cm-close:hover {
+  background: var(--border);
+}
+.cm-icon-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(216,90,48,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 18px;
+}
+[data-theme="dark"] .cm-icon-ring { background: rgba(216,90,48,0.18); }
+.cm-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(29,158,117,0.1);
+  color: #0F6E56;
+  padding: 4px 13px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+[data-theme="dark"] .cm-live-badge {
+  background: rgba(29,158,117,0.15);
+  color: #9FE1CB;
+}
+.cm-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1D9E75;
+  display: inline-block;
+  animation: cmPulse 2s infinite;
+}
+@keyframes cmPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+.cm-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.cm-body {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 22px;
+  line-height: 1.65;
+}
+.cm-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--coral);
+  color: #fff;
+  text-decoration: none;
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 14px 24px;
+  border-radius: 8px;
+  letter-spacing: 0.02em;
+  margin-bottom: 12px;
+  transition: filter 0.15s;
+}
+.cm-cta:hover { filter: brightness(1.08); }
+.cm-fine {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  opacity: 0.7;
+}
+
+@media (max-width: 480px) {
+  .cm-card { padding: 28px 22px 22px; }
+  .cm-title { font-size: 18px; }
+  .cm-cta { font-size: 16px; padding: 12px 20px; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    BOOKING FLOW
    ═══════════════════════════════════════════════════════════════ */

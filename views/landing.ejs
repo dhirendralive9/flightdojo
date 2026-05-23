@@ -264,6 +264,92 @@
   </footer>
 </div>
 
+<!-- ─── Call modal ─── -->
+<div class="cm-overlay" id="callModal" style="display:none;" role="dialog" aria-modal="true" aria-label="Speak with a travel specialist">
+  <div class="cm-card">
+    <button class="cm-close" id="cmClose" aria-label="Close"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+
+    <div class="cm-icon-ring">
+      <i data-lucide="headset" style="width:24px;height:24px;color:var(--coral);"></i>
+    </div>
+
+    <div class="cm-live-badge">
+      <span class="cm-live-dot"></span>
+      Agents available now
+    </div>
+
+    <h2 class="cm-title" id="cmTitle">Need help finding the right flight?</h2>
+    <p class="cm-body" id="cmBody">Our travel specialists can search fares, compare options, and book for you over the phone. No hold music — we pick up fast.</p>
+
+    <a href="tel:<%= ribbon.phone_tel %>" class="cm-cta" id="cmCta">
+      <i data-lucide="phone" style="width:18px;height:18px;"></i>
+      <span><%= ribbon.phone_display %></span>
+    </a>
+
+    <p class="cm-fine">Available 24/7 · No booking fees · Free to call</p>
+  </div>
+</div>
+
+<script>
+(function() {
+  var MODAL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+  var STORAGE_KEY = 'fd_call_modal_dismissed';
+  var DELAY_MS = 8000;
+
+  var overlay = document.getElementById('callModal');
+  var closeBtn = document.getElementById('cmClose');
+  if (!overlay || !closeBtn) return;
+
+  // Was it dismissed in the last 12 hours?
+  try {
+    var ts = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    if (ts && (Date.now() - ts) < MODAL_COOLDOWN_MS) return;
+  } catch(e) {}
+
+  // Parse UTM term from the URL
+  var params = new URLSearchParams(window.location.search);
+  var utmTerm = (params.get('utm_term') || '').trim().toLowerCase();
+
+  // Extract city from route-specific terms like "flight to memphis", "flights to hartford"
+  var cityMatch = utmTerm.match(/flights?\s+to\s+(.+)/);
+  var city = cityMatch ? cityMatch[1].trim().replace(/\b\w/g, function(c) { return c.toUpperCase(); }) : null;
+
+  // Apply UTM-aware copy
+  var titleEl = document.getElementById('cmTitle');
+  var bodyEl = document.getElementById('cmBody');
+
+  if (city) {
+    titleEl.textContent = 'Looking for flights to ' + city + '?';
+    bodyEl.textContent = 'Our specialists have access to unpublished fares to ' + city + '. Call now and let us find you the best deal — we\u2019ll handle everything.';
+  } else if (utmTerm) {
+    // Generic booking intent terms
+    titleEl.textContent = 'Let us handle the booking for you';
+    bodyEl.textContent = 'Skip the search. Our travel specialists will find the best fares, compare your options, and book your ticket in minutes — all over the phone.';
+  }
+  // else: keep the default text from the HTML
+
+  // Show after delay
+  var timer = setTimeout(function() {
+    overlay.style.display = 'flex';
+  }, DELAY_MS);
+
+  // Dismiss handler — set 12-hour cooldown
+  function dismiss() {
+    overlay.style.display = 'none';
+    clearTimeout(timer);
+    try { localStorage.setItem(STORAGE_KEY, String(Date.now())); } catch(e) {}
+  }
+
+  closeBtn.addEventListener('click', dismiss);
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) dismiss();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && overlay.style.display !== 'none') dismiss();
+  });
+})();
+</script>
+
 <script src="/js/main.js?v=<%= typeof assetVersion !== "undefined" ? assetVersion : "1" %>"></script>
 </body>
 </html>
