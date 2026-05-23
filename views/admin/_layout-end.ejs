@@ -4,5 +4,6 @@
 
 <script src="/js/admin.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
 <script>if (window.lucide) window.lucide.createIcons();</script>
+<%- typeof snippets_footer !== 'undefined' ? snippets_footer : '' %>
 </body>
 </html>

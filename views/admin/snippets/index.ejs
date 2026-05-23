@@ -1,0 +1,101 @@
+<%- include('../_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>Code snippets</h1>
+  <p class="adm-page-sub">
+    Inject custom HTML/JS into the page <code>&lt;head&gt;</code> or just before <code>&lt;/body&gt;</code>.
+    Use for analytics, A/B testing, chat widgets, banners, schema.org JSON-LD.
+  </p>
+</div>
+
+<div data-flash hidden class="adm-flash"></div>
+
+<div class="adm-toolbar">
+  <form method="get" class="adm-search-form">
+    <i data-lucide="search" style="width:13px;height:13px;"></i>
+    <input type="search" data-snippet-filter placeholder="Filter by name, scope, or path…" />
+  </form>
+  <% if (can_write) { %>
+    <a class="btn-coral" href="/admin/snippets/new" style="padding:8px 16px;font-size:12px;">
+      <i data-lucide="plus" style="width:14px;height:14px;"></i>
+      New snippet
+    </a>
+  <% } %>
+</div>
+
+<div class="adm-card adm-card-flush">
+  <% if (!snippets || snippets.length === 0) { %>
+    <div class="adm-empty adm-empty-large">
+      <i data-lucide="code-2" style="width:36px;height:36px;color:var(--text-muted);"></i>
+      <p>No snippets yet.</p>
+      <% if (can_write) { %>
+        <a class="btn-coral" href="/admin/snippets/new" style="padding:8px 16px;font-size:12px;margin-top:12px;">Create the first one</a>
+      <% } %>
+    </div>
+  <% } else { %>
+    <table class="adm-table" data-snippets-list>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Placement</th>
+          <th>Scope</th>
+          <th style="text-align:center;">Priority</th>
+          <th style="text-align:center;">Active</th>
+          <th>Last edited</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% snippets.forEach(function(s) { %>
+          <tr data-snippet-row data-active="<%= s.active ? '1' : '0' %>"
+              data-search-text="<%= (s.name + ' ' + (s.description || '') + ' ' + (s.scope || '') + ' ' + (s.placement || '') + ' ' + ((s.include_paths || []).join(' ')) + ' ' + ((s.exclude_paths || []).join(' '))).toLowerCase() %>">
+            <td>
+              <div class="adm-ref"><%= s.name %></div>
+              <% if (s.description) { %><div class="adm-customer-email"><%= s.description %></div><% } %>
+            </td>
+            <td><span class="adm-pill"><%= s.placement %></span></td>
+            <td>
+              <span class="adm-pill"><%= s.scope %></span>
+              <% if (s.include_paths && s.include_paths.length) { %>
+                <div class="adm-route-date" style="margin-top:4px;">only: <%= s.include_paths.join(', ') %></div>
+              <% } %>
+              <% if (s.exclude_paths && s.exclude_paths.length) { %>
+                <div class="adm-route-date" style="margin-top:4px;">except: <%= s.exclude_paths.join(', ') %></div>
+              <% } %>
+            </td>
+            <td style="text-align:center;"><%= s.priority %></td>
+            <td style="text-align:center;">
+              <% if (can_write) { %>
+                <button type="button" class="adm-pill <%= s.active ? 'adm-pill-success' : '' %>"
+                        data-toggle-active="<%= s._id %>"
+                        aria-pressed="<%= s.active ? 'true' : 'false' %>"
+                        style="cursor:pointer;border:none;">
+                  <%= s.active ? 'On' : 'Off' %>
+                </button>
+              <% } else { %>
+                <span class="adm-pill <%= s.active ? 'adm-pill-success' : '' %>"><%= s.active ? 'On' : 'Off' %></span>
+              <% } %>
+            </td>
+            <td>
+              <div class="adm-customer-email"><%= s.last_edited_by_email || s.created_by_email || '—' %></div>
+              <div class="adm-route-date"><%= s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '' %></div>
+            </td>
+            <td style="white-space:nowrap;">
+              <a href="/admin/snippets/<%= s._id %>/revisions" title="History" style="margin-right:10px;font-size:11px;">History</a>
+              <% if (can_write) { %>
+                <a href="/admin/snippets/<%= s._id %>/edit" style="margin-right:10px;font-size:11px;">Edit</a>
+                <button type="button" class="adm-link-danger"
+                        data-delete="<%= s._id %>"
+                        data-name="<%= s.name %>"
+                        style="background:none;border:none;color:var(--coral);cursor:pointer;font-size:11px;padding:0;">Delete</button>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('../_layout-end') %>
+<script src="/js/admin-snippets.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>

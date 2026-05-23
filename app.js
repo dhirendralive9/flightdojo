@@ -22,6 +22,8 @@ const User = require('./models/User');
 const Notification = require('./models/Notification');
 const PassportDocument = require('./models/PassportDocument');
 const EmailLog = require('./models/EmailLog');
+const CodeSnippet = require('./models/CodeSnippet');
+const codeSnippets = require('./services/code-snippets');
 
 // Multer for passport file uploads — store in memory, 8MB max, jpg/png/pdf only
 const passportUpload = multer({
@@ -180,6 +182,10 @@ app.use(auth.attachUser);
 // can override by passing { seo: { ... } } to res.render().
 const seoService = require('./services/seo');
 app.use(seoService.attachSeoDefaults);
+
+// Admin-managed code snippets — populates res.locals.snippets_header / snippets_footer
+app.use(codeSnippets.attachSnippets);
+
 app.use(async (req, res, next) => {
   if (req.user) {
     try {
@@ -2432,6 +2438,169 @@ app.get('/admin/emails', auth.requireAdmin, async (req, res) => {
     totalPages: Math.ceil(total / pageSize),
     summary
   });
+});
+
+// ─── ADMIN CODE SNIPPETS ────────────────────────────────────
+// Header/footer code injection. Writes restricted to owner + manager.
+
+function canWriteSnippets(user) {
+  return !!(user && user.is_admin && (user.admin_role === 'owner' || user.admin_role === 'manager'));
+}
+
+function validateSnippetPayload(body) {
+  const errors = {};
+  const name = String(body.name || '').trim();
+  if (!name) errors.name = 'Name is required.';
+  if (name.length > 120) errors.name = 'Name is too long (max 120 chars).';
+  const placement = String(body.placement || '').trim();
+  if (!['header', 'footer'].includes(placement)) errors.placement = 'Placement must be "header" or "footer".';
+  const scope = String(body.scope || 'all').trim();
+  if (!['all', 'internal', 'external'].includes(scope)) errors.scope = 'Scope must be "all", "internal", or "external".';
+  const code = String(body.code || '');
+  if (!code.trim()) errors.code = 'Code body is required.';
+  if (code.length > 65536) errors.code = 'Code is too large (max 64 KB).';
+  function normalizePaths(input) {
+    if (!input) return [];
+    const arr = Array.isArray(input) ? input : String(input).split(/[\n,]/);
+    return arr.map(s => String(s).trim()).filter(Boolean).filter(p => p.length <= 200).slice(0, 50);
+  }
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    payload: {
+      name,
+      description: String(body.description || '').trim().slice(0, 500),
+      placement, scope, code,
+      active: body.active !== false && body.active !== 'false' && body.active !== '0',
+      priority: Number.isFinite(parseInt(body.priority, 10)) ? parseInt(body.priority, 10) : 100,
+      include_paths: normalizePaths(body.include_paths),
+      exclude_paths: normalizePaths(body.exclude_paths),
+      note: String(body.note || '').trim().slice(0, 500)
+    }
+  };
+}
+
+function requireSnippetWriter(req, res, next) {
+  if (!canWriteSnippets(req.user)) {
+    return req.path.startsWith('/api/')
+      ? res.status(403).json({ error: 'requires_role', message: 'Owner or manager role required.' })
+      : res.status(403).render('404', { title: 'Forbidden — FlightDojo' });
+  }
+  next();
+}
+
+app.get('/admin/snippets', auth.requireAdmin, async (req, res) => {
+  const snippets = await CodeSnippet.find({}).sort({ placement: 1, priority: 1, createdAt: 1 }).lean();
+  res.render('admin/snippets/index', {
+    title: 'Admin · Code Snippets — FlightDojo', layout_admin: true,
+    active_section: 'snippets', snippets, can_write: canWriteSnippets(req.user)
+  });
+});
+
+app.get('/admin/snippets/new', auth.requireAdmin, requireSnippetWriter, (req, res) => {
+  res.render('admin/snippets/edit', {
+    title: 'Admin · New Snippet — FlightDojo', layout_admin: true,
+    active_section: 'snippets', snippet: null
+  });
+});
+
+app.get('/admin/snippets/:id/edit', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const snippet = await CodeSnippet.findById(req.params.id).lean();
+  if (!snippet) return res.status(404).render('404', { title: 'Not found' });
+  res.render('admin/snippets/edit', {
+    title: `Admin · Edit ${snippet.name} — FlightDojo`, layout_admin: true,
+    active_section: 'snippets', snippet
+  });
+});
+
+app.get('/admin/snippets/:id/revisions', auth.requireAdmin, async (req, res) => {
+  const snippet = await CodeSnippet.findById(req.params.id).lean();
+  if (!snippet) return res.status(404).render('404', { title: 'Not found' });
+  res.render('admin/snippets/revisions', {
+    title: `Admin · History · ${snippet.name} — FlightDojo`, layout_admin: true,
+    active_section: 'snippets', snippet
+  });
+});
+
+app.get('/api/admin/snippets', auth.requireAdmin, async (req, res) => {
+  const snippets = await CodeSnippet.find({}).sort({ placement: 1, priority: 1, createdAt: 1 }).lean();
+  res.json({ snippets });
+});
+
+app.get('/api/admin/snippets/_preview', auth.requireAdmin, async (req, res) => {
+  const path = String(req.query.path || '/');
+  res.json(await codeSnippets.renderForPath(path));
+});
+
+app.get('/api/admin/snippets/:id', auth.requireAdmin, async (req, res) => {
+  const snippet = await CodeSnippet.findById(req.params.id).lean();
+  if (!snippet) return res.status(404).json({ error: 'not_found' });
+  res.json({ snippet });
+});
+
+app.post('/api/admin/snippets', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const { ok, errors, payload } = validateSnippetPayload(req.body);
+  if (!ok) return res.status(400).json({ error: 'validation', errors });
+  const existing = await CodeSnippet.findOne({ name: payload.name });
+  if (existing) return res.status(409).json({ error: 'validation', errors: { name: 'A snippet with this name already exists.' } });
+  try {
+    const doc = new CodeSnippet({
+      ...payload, created_by_user_id: req.user._id, created_by_email: req.user.email,
+      last_edited_by_user_id: req.user._id, last_edited_by_email: req.user.email
+    });
+    doc.recordRevision(req.user, payload.note || 'Created');
+    await doc.save();
+    codeSnippets.invalidateCache();
+    res.status(201).json({ snippet: doc.toObject() });
+  } catch (err) { console.error('Create snippet failed:', err); res.status(500).json({ error: 'server_error', message: err.message }); }
+});
+
+app.put('/api/admin/snippets/:id', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const { ok, errors, payload } = validateSnippetPayload(req.body);
+  if (!ok) return res.status(400).json({ error: 'validation', errors });
+  const doc = await CodeSnippet.findById(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'not_found' });
+  if (payload.name !== doc.name) {
+    const clash = await CodeSnippet.findOne({ name: payload.name, _id: { $ne: doc._id } });
+    if (clash) return res.status(409).json({ error: 'validation', errors: { name: 'A snippet with this name already exists.' } });
+  }
+  if (doc.code !== payload.code) doc.recordRevision(req.user, payload.note || 'Edited');
+  Object.assign(doc, { name: payload.name, description: payload.description, placement: payload.placement,
+    scope: payload.scope, code: payload.code, active: payload.active, priority: payload.priority,
+    include_paths: payload.include_paths, exclude_paths: payload.exclude_paths,
+    last_edited_by_user_id: req.user._id, last_edited_by_email: req.user.email });
+  try { await doc.save(); codeSnippets.invalidateCache(); res.json({ snippet: doc.toObject() }); }
+  catch (err) { console.error('Update snippet failed:', err); res.status(500).json({ error: 'server_error', message: err.message }); }
+});
+
+app.post('/api/admin/snippets/:id/toggle', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const doc = await CodeSnippet.findById(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'not_found' });
+  doc.active = !doc.active;
+  doc.last_edited_by_user_id = req.user._id;
+  doc.last_edited_by_email = req.user.email;
+  await doc.save(); codeSnippets.invalidateCache();
+  res.json({ snippet: { _id: doc._id, active: doc.active } });
+});
+
+app.post('/api/admin/snippets/:id/restore/:revisionIndex', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const doc = await CodeSnippet.findById(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'not_found' });
+  const idx = parseInt(req.params.revisionIndex, 10);
+  if (!Number.isFinite(idx) || idx < 0 || idx >= doc.revisions.length) return res.status(400).json({ error: 'invalid_revision_index' });
+  doc.recordRevision(req.user, `Restored revision ${idx}`);
+  doc.code = doc.revisions[idx].code;
+  doc.last_edited_by_user_id = req.user._id;
+  doc.last_edited_by_email = req.user.email;
+  await doc.save(); codeSnippets.invalidateCache();
+  res.json({ snippet: doc.toObject() });
+});
+
+app.delete('/api/admin/snippets/:id', auth.requireAdmin, requireSnippetWriter, async (req, res) => {
+  const doc = await CodeSnippet.findById(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'not_found' });
+  await doc.deleteOne(); codeSnippets.invalidateCache();
+  res.json({ ok: true, deleted: doc._id });
 });
 
 // ─── STATIC PAGES ────────────────────────────────────────

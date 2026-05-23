@@ -1,0 +1,153 @@
+<%- include('../_layout-start') %>
+
+<div class="adm-page-head">
+  <h1><%= snippet ? 'Edit snippet' : 'New snippet' %></h1>
+  <p class="adm-page-sub">
+    <% if (snippet) { %>
+      Editing <strong><%= snippet.name %></strong>. Every code change is recorded — see
+      <a href="/admin/snippets/<%= snippet._id %>/revisions">history</a> to revert.
+    <% } else { %>
+      Create a named block of HTML/JS to inject into every matching page.
+    <% } %>
+  </p>
+  <div style="margin-top:8px;"><a href="/admin/snippets" style="font-size:11px;">← Back to list</a></div>
+</div>
+
+<div data-flash hidden class="adm-flash"></div>
+
+<form data-snippet-form
+      <% if (snippet) { %>data-snippet-id="<%= snippet._id %>"<% } %>
+      class="adm-card" style="padding:24px;display:grid;gap:18px;">
+
+  <!-- Name -->
+  <label class="adm-field">
+    <span class="adm-field-label">Name <span style="color:var(--coral);">*</span></span>
+    <input type="text" name="name" required maxlength="120"
+           placeholder="e.g. Google Analytics 4, Intercom widget, Promo banner"
+           value="<%= snippet ? snippet.name : '' %>"
+           class="adm-input">
+    <span class="adm-field-help">Shown in the admin list. Must be unique.</span>
+    <span class="adm-field-error" data-field-error="name" hidden style="color:var(--coral);font-size:11px;"></span>
+  </label>
+
+  <!-- Description -->
+  <label class="adm-field">
+    <span class="adm-field-label">Description</span>
+    <input type="text" name="description" maxlength="500"
+           placeholder="What is this snippet for? Optional but recommended."
+           value="<%= snippet ? snippet.description : '' %>"
+           class="adm-input">
+  </label>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 120px;gap:14px;">
+    <!-- Placement -->
+    <label class="adm-field">
+      <span class="adm-field-label">Placement <span style="color:var(--coral);">*</span></span>
+      <select name="placement" required class="adm-input">
+        <option value="header" <%= snippet && snippet.placement === 'header' ? 'selected' : '' %>>Header (inside &lt;head&gt;)</option>
+        <option value="footer" <%= snippet && snippet.placement === 'footer' ? 'selected' : '' %>>Footer (before &lt;/body&gt;)</option>
+      </select>
+      <span class="adm-field-help">Analytics + meta → header. Chat widgets + pixels → footer.</span>
+      <span class="adm-field-error" data-field-error="placement" hidden style="color:var(--coral);font-size:11px;"></span>
+    </label>
+
+    <!-- Scope -->
+    <label class="adm-field">
+      <span class="adm-field-label">Scope <span style="color:var(--coral);">*</span></span>
+      <select name="scope" required class="adm-input">
+        <option value="all"      <%= snippet && snippet.scope === 'all'      ? 'selected' : '' %>>All pages</option>
+        <option value="external" <%= snippet && snippet.scope === 'external' ? 'selected' : '' %>>External only (public marketing)</option>
+        <option value="internal" <%= snippet && snippet.scope === 'internal' ? 'selected' : '' %>>Internal only (account, admin, booking, etc.)</option>
+      </select>
+      <span class="adm-field-help">"Internal" matches the same paths that are noindexed: /account, /admin, /booking, /offer, /search, /api, auth pages, webhooks.</span>
+      <span class="adm-field-error" data-field-error="scope" hidden style="color:var(--coral);font-size:11px;"></span>
+    </label>
+
+    <!-- Priority -->
+    <label class="adm-field">
+      <span class="adm-field-label">Priority</span>
+      <input type="number" name="priority" min="0" max="1000"
+             value="<%= snippet ? snippet.priority : 100 %>"
+             class="adm-input">
+      <span class="adm-field-help">Lower renders first. Default 100.</span>
+    </label>
+  </div>
+
+  <!-- Code -->
+  <label class="adm-field">
+    <span class="adm-field-label">Code <span style="color:var(--coral);">*</span></span>
+    <textarea name="code" rows="14" required spellcheck="false"
+              class="adm-input"
+              style="font-family:'JetBrains Mono', ui-monospace, monospace;font-size:12px;line-height:1.5;"
+              placeholder="<!-- Paste your snippet here -->
+<script src=&quot;https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX&quot;></script>"><%= snippet ? snippet.code : '' %></textarea>
+    <span class="adm-field-help">
+      Rendered as raw HTML — full <code>&lt;script&gt;</code>, <code>&lt;style&gt;</code>, <code>&lt;link&gt;</code>, and <code>&lt;meta&gt;</code> tags are allowed.
+      <strong>Anyone who can edit snippets can effectively XSS the site</strong>, so only Owner and Manager roles have write access. Max 64 KB.
+    </span>
+    <span class="adm-field-error" data-field-error="code" hidden style="color:var(--coral);font-size:11px;"></span>
+  </label>
+
+  <!-- Path overrides -->
+  <details style="padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, transparent);">
+    <summary style="cursor:pointer;font-weight:600;font-size:12px;">Path overrides (advanced)</summary>
+    <p class="adm-field-help" style="margin:12px 0;">
+      Optional. Path patterns are prefix matches (a trailing <code>*</code> is implied). One per line or comma-separated. Up to 50 entries each.
+    </p>
+
+    <label class="adm-field" style="margin-bottom:12px;">
+      <span class="adm-field-label">Include only these paths</span>
+      <textarea name="include_paths" rows="3" class="adm-input"
+                style="font-family:ui-monospace, monospace;font-size:12px;"
+                placeholder="/landing&#10;/blog"><%= snippet && snippet.include_paths ? snippet.include_paths.join('\n') : '' %></textarea>
+      <span class="adm-field-help">If filled, the snippet ONLY renders on these paths — overrides the scope selection above.</span>
+    </label>
+
+    <label class="adm-field">
+      <span class="adm-field-label">Exclude these paths</span>
+      <textarea name="exclude_paths" rows="3" class="adm-input"
+                style="font-family:ui-monospace, monospace;font-size:12px;"
+                placeholder="/book&#10;/booking"><%= snippet && snippet.exclude_paths ? snippet.exclude_paths.join('\n') : '' %></textarea>
+      <span class="adm-field-help">Skip on these paths even when scope/include would match. Useful for keeping analytics off /book for PCI scope minimization.</span>
+    </label>
+  </details>
+
+  <!-- Active toggle -->
+  <label style="display:flex;align-items:center;gap:10px;font-size:12px;cursor:pointer;">
+    <input type="checkbox" name="active" value="on"
+           <%= !snippet || snippet.active ? 'checked' : '' %>>
+    <span>Active (uncheck to disable without deleting)</span>
+  </label>
+
+  <!-- Note for revision history (only on edit) -->
+  <% if (snippet) { %>
+    <label class="adm-field">
+      <span class="adm-field-label">Note for history</span>
+      <input type="text" name="note" maxlength="500" class="adm-input"
+             placeholder="e.g. Updated GA4 measurement ID after domain change">
+      <span class="adm-field-help">Optional — only saved if the code body actually changes.</span>
+    </label>
+  <% } %>
+
+  <!-- Submit -->
+  <div style="display:flex;gap:10px;align-items:center;padding-top:8px;border-top:1px solid var(--border);">
+    <button type="submit" class="btn-coral" data-submit style="padding:10px 22px;font-size:12px;">
+      <%= snippet ? 'Save changes' : 'Create snippet' %>
+    </button>
+    <a href="/admin/snippets" style="font-size:11px;">Cancel</a>
+  </div>
+</form>
+
+<!-- Preview panel -->
+<div class="adm-card" style="padding:24px;margin-top:18px;">
+  <h2 style="margin:0 0 6px;font-size:14px;font-weight:700;">Preview which snippets render on a given path</h2>
+  <p class="adm-field-help" style="margin:0 0 14px;">Uses the live database, not the in-progress form — save first to preview your changes.</p>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
+    <input type="text" data-preview-path placeholder="/landing" value="/" class="adm-input" style="flex:1;max-width:300px;">
+    <button type="button" data-preview-btn style="padding:8px 16px;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:6px;cursor:pointer;">Preview</button>
+  </div>
+  <pre data-preview-out style="background:var(--bg);padding:14px;border-radius:6px;font-size:11px;font-family:ui-monospace, monospace;white-space:pre-wrap;margin:0;border:1px solid var(--border);">Click Preview to see what would render.</pre>
+</div>
+
+<%- include('../_layout-end') %>
+<script src="/js/admin-snippets.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>
