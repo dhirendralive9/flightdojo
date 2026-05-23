@@ -36,12 +36,7 @@ const passportUpload = multer({
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
-// Override process.env.BASE_URL with the normalized value so every other
-// module (mailer, cron, routes) gets the clean version too. This eliminates
-// "https://flightdojo.it.com//account/..." double-slash bugs that happen
-// when an operator puts a trailing slash in .env.
-process.env.BASE_URL = BASE_URL;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 if (BASE_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
   console.warn('⚠⚠⚠ BASE_URL is set to localhost in production! Emails will contain localhost links.');
   console.warn('    Set BASE_URL=https://flightdojo.it.com in your .env');
@@ -171,9 +166,10 @@ app.use(session({
     mongoUrl: mongoUri,
     ttl: 30 * 24 * 60 * 60,
     autoRemove: 'native'
-    // crypto.secret removed — kruptein requires 2+ each of upper/lower/digit/special
-    // in the secret, and throws null-deref otherwise. Session payload is just
-    // {userId} and Mongo connection is TLS-encrypted in transit anyway.
+    // crypto.secret removed — kruptein requires the secret to contain 2+ each
+    // of upper/lower/digit/special, and throws null-deref otherwise. Session
+    // payload is just {userId} and the Mongo connection is TLS-encrypted in
+    // transit, so encrypting the at-rest blob adds risk for negligible benefit.
   })
 }));
 
@@ -347,45 +343,8 @@ app.get('/', (req, res) => {
   // immediately to refine origin + popular destinations based on the visitor's IP.
   const defaultOrigin = 'DEL';
   const defaultDest = 'DXB';
-  const baseUrl = res.locals.seo.base_url;
   res.render('home', {
     title: 'FlightDojo — Find. Book. Fly.',
-    seo: {
-      ...res.locals.seo,
-      title: 'FlightDojo — Find. Book. Fly. | Precision flight booking',
-      description: 'Search 500+ airlines and book in minutes. Zero hidden fees, instant confirmation, 24/7 human support. Find your flight on FlightDojo.',
-      canonical: baseUrl,
-      json_ld: {
-        '@context': 'https://schema.org',
-        '@graph': [
-          {
-            '@type': 'TravelAgency',
-            '@id': baseUrl + '/#org',
-            name: 'FlightDojo',
-            url: baseUrl,
-            logo: baseUrl + '/og-default.png',
-            description: 'Flight booking with zero hidden fees and 24/7 human support.',
-            parentOrganization: {
-              '@type': 'Organization',
-              name: 'Lazarus Consulting LLC',
-              address: { '@type': 'PostalAddress', addressLocality: 'Delaware', addressCountry: 'US' }
-            }
-          },
-          {
-            '@type': 'WebSite',
-            '@id': baseUrl + '/#website',
-            url: baseUrl,
-            name: 'FlightDojo',
-            publisher: { '@id': baseUrl + '/#org' },
-            potentialAction: {
-              '@type': 'SearchAction',
-              target: { '@type': 'EntryPoint', urlTemplate: baseUrl + '/search?origin={origin}&destination={destination}' },
-              'query-input': ['required name=origin', 'required name=destination']
-            }
-          }
-        ]
-      }
-    },
     prefill: { origin: defaultOrigin, destination: defaultDest, depart: dates.depart, return: dates.return, passengers: 1 },
     origin_info: airportsService.byIata(defaultOrigin),
     destination_info: airportsService.byIata(defaultDest),
@@ -436,6 +395,16 @@ app.get('/api/geo/me', async (req, res) => {
   }
 
   res.json(result);
+});
+
+app.get('/landing', (req, res) => {
+  const dates = defaultDates();
+  res.render('landing', {
+    title: 'FlightDojo — Search smarter. Fly sharper.',
+    prefill: { origin: 'DEL', destination: 'MXP', depart: dates.depart, return: dates.return, passengers: 1 },
+    origin_info: airportsService.byIata('DEL'),
+    destination_info: airportsService.byIata('MXP')
+  });
 });
 
 // /landing was a previous variant of the home page. 301 to / to consolidate
@@ -2601,13 +2570,18 @@ app.listen(PORT, () => {
     console.warn('⚠  Cron not started:', err.message);
   }
 
-  // Admin bootstrap from env
+  // ─── Admin bootstrap from .env ───
+  // ADMIN_EMAIL: comma-separated list. Every user matching one of these gets is_admin=true.
+  // ADMIN_PASSWORD: if set, also creates the first admin user (only when missing).
+  //   Subsequent boots leave the existing password alone.
   bootstrapAdminFromEnv().catch(err => console.warn('⚠  Admin bootstrap failed:', err.message));
 });
 
 async function bootstrapAdminFromEnv() {
   const adminEmails = (process.env.ADMIN_EMAIL || '')
-    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
   if (adminEmails.length === 0) return;
 
   const adminPassword = process.env.ADMIN_PASSWORD || '';
@@ -2615,7 +2589,9 @@ async function bootstrapAdminFromEnv() {
 
   for (const email of adminEmails) {
     let user = await User.findOne({ email });
+
     if (!user && adminPassword) {
+      // Create the admin user since they don't exist
       if (adminPassword.length < 8) {
         console.warn(`⚠  ADMIN_PASSWORD must be 8+ chars — skipping creation of ${email}`);
         continue;
@@ -2630,10 +2606,13 @@ async function bootstrapAdminFromEnv() {
       console.log(`🔑 Created admin user from .env: ${email}`);
       continue;
     }
+
     if (!user) {
-      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create.`);
+      console.log(`⚠  ADMIN_EMAIL ${email} has no account yet — set ADMIN_PASSWORD to auto-create, or sign up manually and reboot.`);
       continue;
     }
+
+    // Promote existing user
     if (!user.is_admin || user.admin_role !== 'owner') {
       user.is_admin = true;
       user.admin_role = 'owner';
@@ -2642,5 +2621,10 @@ async function bootstrapAdminFromEnv() {
       console.log(`🔑 Promoted to admin: ${email}`);
     }
   }
-  console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+
+  if (promoted > 0 || created > 0) {
+    console.log(`🔑 Admin bootstrap: ${created} created, ${promoted} promoted, ${adminEmails.length} configured`);
+  } else {
+    console.log(`🔑 Admin bootstrap: ${adminEmails.length} configured, all already set up`);
+  }
 }
