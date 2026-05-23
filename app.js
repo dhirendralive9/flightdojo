@@ -413,10 +413,6 @@ app.get('/landing', (req, res) => {
   });
 });
 
-// /landing was a previous variant of the home page. 301 to / to consolidate
-// link equity and prevent duplicate-content penalties.
-app.get('/landing', (req, res) => res.redirect(301, '/'));
-
 async function handleSearch(req, res) {
   const params = req.method === 'POST' ? req.body : req.query;
   const { origin, destination, depart, ret, passengers, cabin, max_connections } = params;
