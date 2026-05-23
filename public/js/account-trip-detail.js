@@ -1,3 +1,17 @@
+// ─── COPY PNR ───
+(function() {
+  const btn = document.getElementById('bpCopyBtn');
+  const pnrEl = document.getElementById('bpPnr');
+  if (!btn || !pnrEl) return;
+  btn.addEventListener('click', function() {
+    const pnr = pnrEl.textContent.trim();
+    navigator.clipboard.writeText(pnr).then(function() {
+      var txt = document.getElementById('bpCopyText');
+      if (txt) { txt.textContent = 'Copied!'; setTimeout(function() { txt.textContent = 'Copy'; }, 1500); }
+    }).catch(function() {});
+  });
+})();
+
 (function() {
   // ─── TRAVEL-DAY COMPANION ───
   const block = document.getElementById('travelDayBlock');

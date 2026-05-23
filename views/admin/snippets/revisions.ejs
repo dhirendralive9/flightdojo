@@ -1,0 +1,52 @@
+<%- include('../_layout-start') %>
+
+<div class="adm-page-head">
+  <h1>History · <%= snippet.name %></h1>
+  <p class="adm-page-sub">Up to 20 most-recent revisions of the code body are kept.</p>
+  <div style="margin-top:8px;">
+    <a href="/admin/snippets/<%= snippet._id %>/edit" style="font-size:11px;">← Back to edit</a>
+    &nbsp;·&nbsp;
+    <a href="/admin/snippets" style="font-size:11px;">All snippets</a>
+  </div>
+</div>
+
+<div data-flash hidden class="adm-flash"></div>
+
+<% if (!snippet.revisions || snippet.revisions.length === 0) { %>
+  <div class="adm-card">
+    <div class="adm-empty adm-empty-large">
+      <i data-lucide="clock" style="width:36px;height:36px;color:var(--text-muted);"></i>
+      <p>No revisions yet. The first one is recorded when the snippet is first edited after creation.</p>
+    </div>
+  </div>
+<% } else { %>
+  <div data-revisions-list data-snippet-id="<%= snippet._id %>" style="display:grid;gap:14px;">
+    <% snippet.revisions.slice().reverse().forEach(function(rev, displayIdx) {
+         var realIdx = snippet.revisions.length - 1 - displayIdx;
+    %>
+      <div class="adm-card" style="padding:18px;">
+        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+          <div>
+            <strong>Revision <%= realIdx %></strong>
+            <div class="adm-customer-email" style="margin-top:2px;">
+              <%= rev.edited_at ? new Date(rev.edited_at).toLocaleString() : '—' %>
+              · <%= rev.edited_by_email || 'unknown' %>
+            </div>
+          </div>
+          <button type="button"
+                  data-restore="<%= realIdx %>"
+                  style="padding:6px 14px;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:6px;cursor:pointer;">
+            Restore this
+          </button>
+        </header>
+        <% if (rev.note) { %>
+          <p style="margin:0 0 10px;font-size:11px;color:var(--text-muted);font-style:italic;"><%= rev.note %></p>
+        <% } %>
+        <pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;font-family:ui-monospace, monospace;white-space:pre-wrap;margin:0;border:1px solid var(--border);max-height:300px;overflow:auto;"><%= rev.code %></pre>
+      </div>
+    <% }); %>
+  </div>
+<% } %>
+
+<%- include('../_layout-end') %>
+<script src="/js/admin-snippets.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"></script>

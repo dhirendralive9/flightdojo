@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/css/main.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : '1' %>"/>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <%- typeof snippets_header !== 'undefined' ? snippets_header : '' %>
 </head>
 <body class="admin-body">
 
@@ -42,6 +43,10 @@
       <a href="/admin/emails" class="<%= active_section === 'emails' ? 'active' : '' %>">
         <i data-lucide="mail" style="width:14px;height:14px;"></i>
         Emails
+      </a>
+      <a href="/admin/snippets" class="<%= active_section === 'snippets' ? 'active' : '' %>">
+        <i data-lucide="code-2" style="width:14px;height:14px;"></i>
+        Snippets
       </a>
 
       <div class="admin-nav-divider">Coming soon</div>

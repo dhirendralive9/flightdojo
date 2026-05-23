@@ -3,32 +3,97 @@
 <%- include('_layout-start') %>
 
 <% const currency = order.total_currency === 'EUR' ? '€' : order.total_currency === 'USD' ? '$' : order.total_currency === 'GBP' ? '£' : (order.total_currency || '') + ' '; %>
+<%
+  const statusLabels = { awaiting_payment: 'Awaiting payment', paid: 'Payment received', booked: 'Booking received', ticketed: 'Ticketed', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' };
+  const statusLabel = statusLabels[order.status] || order.status;
+  const statusClass = { completed: 'bp-status-completed', ticketed: 'bp-status-ticketed', booked: 'bp-status-booked', paid: 'bp-status-booked', awaiting_payment: 'bp-status-pending', failed: 'bp-status-failed', cancelled: 'bp-status-failed' }[order.status] || '';
+  const pnr = order.booking_reference || order.reference;
+  const firstSlice = (order.slices || [])[0] || {};
+  const lastSlice = (order.slices || [])[order.slices.length - 1] || firstSlice;
+  const originIata = firstSlice.origin || '?';
+  const destIata = lastSlice.destination || '?';
+  const originName = firstSlice.origin_name || '';
+  const destName = lastSlice.destination_name || '';
+  const isRoundTrip = order.slices && order.slices.length > 1;
+  const paxCount = order.passenger_count || (order.passengers || []).length || 1;
+  const carrier = order.carrier || ((firstSlice.segments || [])[0] || {}).carrier || '';
+  const departDate = firstSlice.departure_date || '';
+%>
 
 <a href="/account" class="back-link">
   <i data-lucide="arrow-left" style="width:14px;height:14px;"></i>
   Back to trips
 </a>
 
-<div class="trip-detail-header">
-  <div>
-    <div class="trip-detail-eyebrow">
-      <%= { awaiting_payment: 'Awaiting payment', paid: 'Payment received', booked: 'Booking received', ticketed: 'Ticketed', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }[order.status] || order.status %>
-    </div>
-    <h1 class="trip-detail-h1">
-      <%= order.slices[0]?.origin %> → <%= order.slices[order.slices.length-1]?.destination %>
-    </h1>
-    <p class="trip-detail-sub">
-      <strong><%= order.booking_reference || order.reference %></strong>
-      <% if (order.booking_reference && order.booking_reference !== order.reference) { %>
-        <span style="color:var(--text-muted);"> · Order <%= order.reference %></span>
+<!-- Boarding-pass header -->
+<div class="bp-card">
+  <div class="bp-top">
+    <div class="bp-left">
+      <span class="bp-status <%= statusClass %>"><%= statusLabel %></span>
+      <div class="bp-route">
+        <span class="bp-iata"><%= originIata %></span>
+        <div class="bp-route-mid">
+          <span class="bp-route-type"><%= isRoundTrip ? 'Round trip' : 'One way' %></span>
+          <div class="bp-route-line">
+            <% if (isRoundTrip) { %>
+              <i data-lucide="arrow-left-right" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            <% } else { %>
+              <i data-lucide="arrow-right" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            <% } %>
+          </div>
+        </div>
+        <span class="bp-iata"><%= destIata %></span>
+      </div>
+      <% if (originName || destName) { %>
+        <div class="bp-city-names"><%= originName %><% if (originName && destName) { %> · <% } %><%= destName %></div>
       <% } %>
-    </p>
+    </div>
+    <div class="bp-right">
+      <div class="bp-pnr-label">Booking reference</div>
+      <div class="bp-pnr" id="bpPnr"><%= pnr %></div>
+      <button type="button" class="bp-copy-btn" id="bpCopyBtn" title="Copy PNR">
+        <i data-lucide="copy" style="width:12px;height:12px;"></i>
+        <span id="bpCopyText">Copy</span>
+      </button>
+      <% if (order.booking_reference && order.booking_reference !== order.reference) { %>
+        <div class="bp-order-ref">Order <%= order.reference %></div>
+      <% } %>
+    </div>
   </div>
-  <div class="trip-detail-actions">
-    <a href="/contact?ref=<%= order.reference %>" class="btn-ghost-hero">
-      <i data-lucide="headphones" style="width:13px;height:13px;"></i>
-      Get help with this trip
-    </a>
+
+  <!-- Tear line -->
+  <div class="bp-tear">
+    <div class="bp-tear-notch bp-tear-notch-l"></div>
+    <div class="bp-tear-dash"></div>
+    <div class="bp-tear-notch bp-tear-notch-r"></div>
+  </div>
+
+  <!-- Quick info strip -->
+  <div class="bp-bottom">
+    <div class="bp-info">
+      <div class="bp-info-label">Departure</div>
+      <div class="bp-info-value"><%= departDate %></div>
+    </div>
+    <% if (carrier) { %>
+      <div class="bp-info">
+        <div class="bp-info-label">Carrier</div>
+        <div class="bp-info-value"><%= carrier %></div>
+      </div>
+    <% } %>
+    <div class="bp-info">
+      <div class="bp-info-label">Passengers</div>
+      <div class="bp-info-value"><%= paxCount %></div>
+    </div>
+    <div class="bp-info">
+      <div class="bp-info-label">Total paid</div>
+      <div class="bp-info-value"><%= currency %><%= Math.round(parseFloat(order.total_amount || 0)) %></div>
+    </div>
+    <div class="bp-actions">
+      <a href="/contact?ref=<%= order.reference %>" class="btn-ghost-hero">
+        <i data-lucide="headphones" style="width:13px;height:13px;"></i>
+        Get help
+      </a>
+    </div>
   </div>
 </div>
 

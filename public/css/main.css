@@ -4097,6 +4097,164 @@ footer.site-footer {
 .trip-detail-sub { margin: 0; color: var(--text-muted); font-size: 13px; }
 .trip-detail-actions { display: flex; gap: 8px; }
 
+/* ─── Boarding-pass header ─── */
+.bp-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.bp-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 22px 26px 18px;
+  flex-wrap: wrap;
+}
+.bp-left { min-width: 0; }
+.bp-right { text-align: right; flex-shrink: 0; }
+
+/* Status badge */
+.bp-status {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 11px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.bp-status-completed { background: #085041; color: #9FE1CB; }
+.bp-status-ticketed  { background: #0C447C; color: #B5D4F4; }
+.bp-status-booked    { background: #185FA5; color: #E6F1FB; }
+.bp-status-pending   { background: #854F0B; color: #FAC775; }
+.bp-status-failed    { background: #791F1F; color: #F7C1C1; }
+
+/* Route */
+.bp-route {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+.bp-iata {
+  font-family: 'Syne', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.bp-route-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.bp-route-type {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.bp-route-line { line-height: 0; }
+.bp-city-names {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* PNR */
+.bp-pnr-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 5px;
+}
+.bp-pnr {
+  font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--coral);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.bp-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.bp-copy-btn:hover { border-color: var(--coral); color: var(--coral); }
+.bp-order-ref {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* Tear line */
+.bp-tear {
+  display: flex;
+  align-items: center;
+  padding: 0 0;
+}
+.bp-tear-notch {
+  width: 14px;
+  height: 26px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.bp-tear-notch-l { border-radius: 0 14px 14px 0; }
+.bp-tear-notch-r { border-radius: 14px 0 0 14px; }
+.bp-tear-dash {
+  flex: 1;
+  border-top: 2px dashed var(--border);
+}
+
+/* Bottom info strip */
+.bp-bottom {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  padding: 14px 26px 18px;
+  flex-wrap: wrap;
+}
+.bp-info {}
+.bp-info-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+.bp-info-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+.bp-actions {
+  margin-left: auto;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .bp-top { flex-direction: column; }
+  .bp-right { text-align: left; }
+  .bp-iata { font-size: 26px; }
+  .bp-pnr { font-size: 24px; }
+  .bp-bottom { gap: 16px; }
+}
+
 .trip-detail-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
