@@ -264,8 +264,9 @@
   </footer>
 </div>
 
-<!-- ─── Call modal ─── -->
-<div class="cm-overlay" id="callModal" style="display:none;" role="dialog" aria-modal="true" aria-label="Speak with a travel specialist">
+<!-- ─── Call modal (outside .landing-shell so z-index works above everything) ─── -->
+<div class="cm-overlay" id="callModal" role="dialog" aria-modal="true" aria-label="Speak with a travel specialist">
+  <div class="cm-backdrop" id="cmBackdrop"></div>
   <div class="cm-card">
     <button class="cm-close" id="cmClose" aria-label="Close"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
 
@@ -297,14 +298,24 @@
   var DELAY_MS = 8000;
 
   var overlay = document.getElementById('callModal');
+  var backdrop = document.getElementById('cmBackdrop');
   var closeBtn = document.getElementById('cmClose');
   if (!overlay || !closeBtn) return;
 
-  // Was it dismissed in the last 12 hours?
+  // Check 12-hour cooldown — wrapped safely so localStorage issues never block the modal
+  var shouldHide = false;
   try {
-    var ts = parseInt(localStorage.getItem(STORAGE_KEY), 10);
-    if (ts && (Date.now() - ts) < MODAL_COOLDOWN_MS) return;
-  } catch(e) {}
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var ts = parseInt(raw, 10);
+      if (!isNaN(ts) && ts > 0 && (Date.now() - ts) < MODAL_COOLDOWN_MS) {
+        shouldHide = true;
+      }
+    }
+  } catch(e) {
+    // localStorage blocked (incognito, Safari private, etc.) — show the modal anyway
+  }
+  if (shouldHide) return;
 
   // Parse UTM term from the URL
   var params = new URLSearchParams(window.location.search);
@@ -320,32 +331,30 @@
 
   if (city) {
     titleEl.textContent = 'Looking for flights to ' + city + '?';
-    bodyEl.textContent = 'Our specialists have access to unpublished fares to ' + city + '. Call now and let us find you the best deal — we\u2019ll handle everything.';
+    bodyEl.textContent = 'Our specialists have access to unpublished fares to ' + city + '. Call now and let us find you the best deal \u2014 we\u2019ll handle everything.';
   } else if (utmTerm) {
-    // Generic booking intent terms
     titleEl.textContent = 'Let us handle the booking for you';
-    bodyEl.textContent = 'Skip the search. Our travel specialists will find the best fares, compare your options, and book your ticket in minutes — all over the phone.';
+    bodyEl.textContent = 'Skip the search. Our travel specialists will find the best fares, compare your options, and book your ticket in minutes \u2014 all over the phone.';
   }
-  // else: keep the default text from the HTML
 
   // Show after delay
   var timer = setTimeout(function() {
-    overlay.style.display = 'flex';
+    overlay.classList.add('cm-visible');
+    // Re-render lucide icons inside the modal (they may not have been processed since the modal was hidden)
+    if (window.lucide) lucide.createIcons();
   }, DELAY_MS);
 
   // Dismiss handler — set 12-hour cooldown
   function dismiss() {
-    overlay.style.display = 'none';
+    overlay.classList.remove('cm-visible');
     clearTimeout(timer);
     try { localStorage.setItem(STORAGE_KEY, String(Date.now())); } catch(e) {}
   }
 
   closeBtn.addEventListener('click', dismiss);
-  overlay.addEventListener('click', function(e) {
-    if (e.target === overlay) dismiss();
-  });
+  backdrop.addEventListener('click', dismiss);
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && overlay.style.display !== 'none') dismiss();
+    if (e.key === 'Escape' && overlay.classList.contains('cm-visible')) dismiss();
   });
 })();
 </script>

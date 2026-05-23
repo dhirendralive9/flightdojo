@@ -2403,17 +2403,29 @@ footer.site-footer {
 .cm-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
-  z-index: 9000;
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: cmFadeIn 0.3s ease;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
 }
-@keyframes cmFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.cm-overlay.cm-visible {
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+}
+.cm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 0;
+}
+[data-theme="dark"] .cm-backdrop {
+  background: rgba(0, 0, 0, 0.75);
 }
 .cm-card {
   background: var(--surface);
@@ -2423,11 +2435,12 @@ footer.site-footer {
   padding: 36px 30px 26px;
   text-align: center;
   position: relative;
-  animation: cmSlideUp 0.35s ease;
+  z-index: 1;
+  transform: translateY(24px);
+  transition: transform 0.35s ease;
 }
-@keyframes cmSlideUp {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
+.cm-visible .cm-card {
+  transform: translateY(0);
 }
 .cm-close {
   position: absolute;
