@@ -8,7 +8,8 @@
   const failedEl = document.getElementById('bksFailed');
   const failMsgEl = document.getElementById('bksFailMsg');
 
-  if (initial === 'booked') return;
+  const finishedStatuses = ['booked', 'ticketed', 'completed'];
+  if (finishedStatuses.includes(initial)) return;
 
   let attempts = 0;
   const MAX_ATTEMPTS = 30; // ~60 seconds at 2s intervals
@@ -20,7 +21,7 @@
       if (!res.ok) throw new Error('status fetch failed');
       const data = await res.json();
 
-      if (data.status === 'booked') {
+      if (finishedStatuses.includes(data.status)) {
         // Reload to render the success view server-side (with PNR + itinerary)
         window.location.reload();
         return;

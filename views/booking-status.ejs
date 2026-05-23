@@ -44,7 +44,11 @@
       </div>
     <% } else { %>
 
-    <div id="bksLoading" class="bks-state" style="<%= order && order.status === 'booked' ? 'display:none;' : '' %>">
+    <%
+      const isFinished = order && ['booked', 'ticketed', 'completed'].includes(order.status);
+      const isFailed = order && ['failed', 'cancelled'].includes(order.status);
+    %>
+    <div id="bksLoading" class="bks-state" style="<%= isFinished || isFailed ? 'display:none;' : '' %>">
       <div class="bks-icon bks-icon-loading">
         <i data-lucide="loader" style="width:36px;height:36px;"></i>
       </div>
@@ -59,7 +63,7 @@
       </div>
     </div>
 
-    <div id="bksSuccess" class="bks-state" style="<%= order && order.status === 'booked' ? '' : 'display:none;' %>">
+    <div id="bksSuccess" class="bks-state" style="<%= isFinished ? '' : 'display:none;' %>">
       <div class="bks-icon bks-icon-success">
         <i data-lucide="check" style="width:42px;height:42px;"></i>
       </div>
@@ -155,7 +159,7 @@
       <% } %>
     </div>
 
-    <div id="bksFailed" class="bks-state" style="display:none;">
+    <div id="bksFailed" class="bks-state" style="<%= isFailed ? '' : 'display:none;' %>">
       <div class="bks-icon bks-icon-failed">
         <i data-lucide="x" style="width:36px;height:36px;"></i>
       </div>
