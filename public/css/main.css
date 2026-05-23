@@ -2421,11 +2421,11 @@ footer.site-footer {
 .cm-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.82);
   z-index: 0;
 }
 [data-theme="dark"] .cm-backdrop {
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.9);
 }
 .cm-card {
   background: var(--surface);
